@@ -11,11 +11,9 @@ import {
   startBackupCron,
   startNotificationReminderCron,
   startReplayEquivalenceCron,
-  startSyntheticMonitorCron,
 } from "./cron.js";
 import { CacheService } from "./services/cacheService.js";
 import { LedgerService } from "./services/ledger.js";
-import { getSyntheticMonitor } from "./services/syntheticMonitor.js";
 import {
   StellarIndexer,
   SorobanRpcEventSource,
@@ -141,7 +139,6 @@ const app = buildApp({
   stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   stellarWebhookPublicKey: env.STELLAR_WEBHOOK_PUBLIC_KEY,
   webhookToleranceSeconds: env.WEBHOOK_TOLERANCE_SECONDS,
-  monitorLatencyBudgetMs: env.SYNTHETIC_MONITOR_LATENCY_BUDGET_MS,
 });
 
 // Periodic write-behind sync task: sync checkpoint from cache to PostgreSQL database every 15 seconds
@@ -177,23 +174,6 @@ const notificationCronTask = env.SANDBOX_MODE
       logger,
     });
 
-// Synthetic journey monitor (#monitor). Only scheduled when
-// SYNTHETIC_MONITOR_SCHEDULE is configured; it can also be run on demand via
-// POST /internal/synthetic-monitor/run or `pnpm monitor:synthetic`.
-let monitorCronTask: ScheduledTask | undefined;
-const monitorRunner = getSyntheticMonitor(app);
-if (env.SYNTHETIC_MONITOR_SCHEDULE && monitorRunner) {
-  monitorCronTask = startSyntheticMonitorCron({
-    run: () => monitorRunner.run(),
-    logger,
-    schedule: env.SYNTHETIC_MONITOR_SCHEDULE,
-  });
-  logger.info(
-    { schedule: env.SYNTHETIC_MONITOR_SCHEDULE },
-    "synthetic journey monitor scheduled",
-  );
-}
-
 // Stellar indexer daemon (#indexer). Only started when a Soroban RPC endpoint
 // and at least one contract id are configured.
 let indexerCronTask: ScheduledTask | undefined;
@@ -214,8 +194,10 @@ if (!env.SANDBOX_MODE && env.SOROBAN_RPC_URL && env.INDEXER_CONTRACT_IDS) {
     // registered on-chain, so a newly deployed pool starts being indexed
     // on the next tick without an env var change + restart.
     resolveContractIds: async () => {
-      const registryAddresses =
-        await indexerLedgerService.getActivePoolAddresses();
+      const registryAddresses = (indexerLedgerService as any)
+        .getActivePoolAddresses
+        ? await (indexerLedgerService as any).getActivePoolAddresses()
+        : [];
       return Array.from(new Set([...staticContractIds, ...registryAddresses]));
     },
     // #507: only a `fpooldep` event emitted by this exact contract is
@@ -299,7 +281,6 @@ async function shutdown(signal: string) {
   indexerCronTask?.stop();
   backupCronTask?.stop();
   replayCronTask?.stop();
-  monitorCronTask?.stop();
   await app.close();
   await cacheService.disconnect();
   await prisma.$disconnect();

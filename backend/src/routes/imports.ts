@@ -2,14 +2,12 @@ import type { FastifyPluginAsync, preHandlerHookHandler } from "fastify";
 import { z } from "zod";
 import { AppError } from "../errors.js";
 import { ok } from "../responses.js";
+import { ERROR_CODES } from "../constants.js";
 import {
   IMPORT_FORMAT_VERSION,
   IMPORT_MAX_ROWS,
   type DataImportService,
 } from "../services/dataImport.js";
-import type { ImportService } from "../services/importService.js";
-import { requireServiceAuth } from "../middleware/service-auth.js";
-import { importBatchParams, importPreviewBody } from "../schemas/imports.js";
 
 export interface DuplicateReport {
   key: string;
@@ -25,7 +23,7 @@ const importBody = z.object({
 });
 
 /**
- * POST /imports/saved-pools (#773): wallet-scoped user import.
+ * Post /imports/saved-pools (#773): imports into the caller's own wallet only.
  * Requires `own.data.import`; the wallet is taken from the session, never the body.
  */
 export const importsRoutes =
@@ -45,9 +43,11 @@ export const importsRoutes =
       if (duplicates.length > 0) {
         const exact = duplicates.filter((d) => d.severity === "exact");
         if (exact.length > 0) {
-          throw AppError.conflict("exact duplicate records detected", {
-            duplicates: exact,
-          });
+          throw AppError.conflict(
+            ERROR_CODES.CONFLICT,
+            "exact duplicate records detected",
+            JSON.stringify({ duplicates: exact }),
+          );
         }
         return ok({
           ...result,
@@ -55,72 +55,6 @@ export const importsRoutes =
         });
       }
       return ok(result);
-    });
-  };
-
-/**
- * Secure import pipeline endpoints (#imports). Service-secret protected:
- * imports are operator tooling, never a public API surface.
- *
- *   POST /internal/imports/preview        — validate + quarantine (no writes)
- *   POST /internal/imports/:id/commit     — apply accepted rows (idempotent)
- *   POST /internal/imports/:id/rollback   — undo not-yet-broadcast rows
- *   GET  /internal/imports/:id            — traceable batch + row report
- */
-export const internalImportsRoutes =
-  (svc: ImportService, internalSecret: string): FastifyPluginAsync =>
-  async (app) => {
-    const guard = requireServiceAuth(internalSecret);
-
-    app.post(
-      "/internal/imports/preview",
-      { preHandler: guard },
-      async (req, reply) => {
-        const body = importPreviewBody.parse(req.body);
-        const result = await svc.preview({
-          kind: body.kind,
-          content: body.content,
-          sourceName: body.source_name,
-          createdBy: body.created_by,
-          idempotencyKey: body.idempotency_key,
-        });
-        reply.status(result.created ? 201 : 200);
-        return ok({ batch: result.batch, preview: true });
-      },
-    );
-
-    app.post(
-      "/internal/imports/:id/commit",
-      { preHandler: guard },
-      async (req) => {
-        const params = importBatchParams.parse(req.params);
-        const result = await svc.commit(params.id);
-        return ok({
-          batch: result.batch,
-          already_committed: result.alreadyCommitted,
-        });
-      },
-    );
-
-    app.post(
-      "/internal/imports/:id/rollback",
-      { preHandler: guard },
-      async (req) => {
-        const params = importBatchParams.parse(req.params);
-        const result = await svc.rollback(params.id);
-        return ok({
-          batch: result.batch,
-          already_rolled_back: result.alreadyRolledBack,
-        });
-      },
-    );
-
-    app.get("/internal/imports/:id", { preHandler: guard }, async (req) => {
-      const params = importBatchParams.parse(req.params);
-      const batch = await svc.getBatch(params.id);
-      if (!batch)
-        throw AppError.notFound(`import batch ${params.id} not found`);
-      return ok(batch);
     });
   };
 

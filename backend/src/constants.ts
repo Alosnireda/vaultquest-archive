@@ -1,36 +1,13 @@
-export const ACTION_TYPES = [
-  "deposit",
-  "withdraw",
-  "create_vault",
-  "claim",
-  "select_winner",
-  "compensating",
-] as const;
+export const ACTION_TYPES = ["deposit", "withdraw", "create_vault", "claim", "select_winner", "compensating"] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
-export const ACTION_STATUSES = [
-  "pending",
-  "submitted",
-  "confirmed",
-  "failed",
-  "reverted",
-  "orphaned",
-] as const;
+export const ACTION_STATUSES = ["pending", "submitted", "confirmed", "failed", "reverted", "orphaned"] as const;
 export type ActionStatus = (typeof ACTION_STATUSES)[number];
 
-export const FINALITY_STATUSES = [
-  "provisional",
-  "finalized",
-  "invalidated",
-] as const;
+export const FINALITY_STATUSES = ["provisional", "finalized", "invalidated"] as const;
 export type FinalityStatus = (typeof FINALITY_STATUSES)[number];
 
-export const TERMINAL_STATUSES: readonly ActionStatus[] = [
-  "confirmed",
-  "failed",
-  "reverted",
-  "orphaned",
-];
+export const TERMINAL_STATUSES: readonly ActionStatus[] = ["confirmed", "failed", "reverted", "orphaned"];
 
 const TRANSITIONS: Record<ActionStatus, readonly ActionStatus[]> = {
   pending: ["submitted", "failed"],
@@ -38,7 +15,7 @@ const TRANSITIONS: Record<ActionStatus, readonly ActionStatus[]> = {
   confirmed: [],
   failed: [],
   reverted: [],
-  orphaned: [],
+  orphaned: []
 };
 
 export function canTransition(from: ActionStatus, to: string): boolean {
@@ -52,8 +29,7 @@ export const ERROR_CODES = {
   NETWORK_ERROR: "NETWORK_ERROR",
   REVERTED_ON_CHAIN: "REVERTED_ON_CHAIN",
   ORPHAN_TTL_EXPIRED: "ORPHAN_TTL_EXPIRED",
-  IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD:
-    "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD",
+  IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD",
   TX_HASH_ALREADY_ATTACHED: "TX_HASH_ALREADY_ATTACHED",
   ILLEGAL_TRANSITION: "ILLEGAL_TRANSITION",
   NOT_FOUND: "NOT_FOUND",
@@ -63,10 +39,6 @@ export const ERROR_CODES = {
   OPERATION_LIMIT_EXCEEDED: "OPERATION_LIMIT_EXCEEDED",
   INVALID_CURSOR: "INVALID_CURSOR",
   EXPIRED_CURSOR: "EXPIRED_CURSOR",
-  // Support access (#support-access)
-  SUPPORT_ACCESS_DENIED: "SUPPORT_ACCESS_DENIED",
-  // Import pipeline (#imports)
-  IMPORT_ROLLBACK: "IMPORT_ROLLBACK",
   // Escrow settlement pipeline (#settlement)
   SETTLEMENT_SUBMIT_FAILED: "SETTLEMENT_SUBMIT_FAILED",
   SETTLEMENT_RETRIES_EXHAUSTED: "SETTLEMENT_RETRIES_EXHAUSTED",
@@ -122,7 +94,7 @@ export const ERROR_CODES = {
   WEBHOOK_TIMESTAMP_MISSING: "WEBHOOK_TIMESTAMP_MISSING",
   WEBHOOK_DUPLICATE_EVENT: "WEBHOOK_DUPLICATE_EVENT",
   WEBHOOK_EVENT_MALFORMED: "WEBHOOK_EVENT_MALFORMED",
-  WEBHOOK_PROVIDER_UNSUPPORTED: "WEBHOOK_PROVIDER_UNSUPPORTED",
+  WEBHOOK_PROVIDER_UNSUPPORTED: "WEBHOOK_PROVIDER_UNSUPPORTED"
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -148,7 +120,7 @@ export const VAULT_STATES = [
   "Resolving",
   "Resolved",
   "Refunded",
-  "PendingVerification",
+  "PendingVerification"
 ] as const;
 export type VaultState = (typeof VAULT_STATES)[number];
 
@@ -171,13 +143,13 @@ export const RETRYABLE_RESULT_CODES: readonly string[] = [
   "ECONNRESET",
   "504",
   "503",
-  "429",
+  "429"
 ];
 
 export const SETTLEMENT_RETRY = {
   maxAttempts: 5,
   baseDelayMs: 250,
-  maxDelayMs: 8000,
+  maxDelayMs: 8000
 } as const;
 
 /**

@@ -10,9 +10,6 @@ import { LedgerService } from "./services/ledger.js";
 import { SavedPoolsService } from "./services/savedPools.js";
 import { SchemaVersionService } from "./services/schemaVersionService.js";
 import { AuditService } from "./services/auditService.js";
-import { ImportService } from "./services/importService.js";
-import { SupportAccessService } from "./services/supportAccessService.js";
-import { attachSyntheticMonitor } from "./services/syntheticMonitor.js";
 import { actionsRoutes } from "./routes/actions.js";
 import { savedPoolsRoutes } from "./routes/savedPools.js";
 import { schemaVersionRoutes } from "./routes/schemaVersion.js";
@@ -24,9 +21,33 @@ import { metricsRoutes } from "./routes/metrics.js";
 import { usersRoutes } from "./routes/users.js";
 import { prometheusRoutes } from "./routes/prometheus.js";
 import { healthRoutes } from "./routes/health.js";
-import { importsRoutes, internalImportsRoutes } from "./routes/imports.js";
-import { supportAccessRoutes } from "./routes/supportAccess.js";
-import { monitorRoutes } from "./routes/monitor.js";
+import { MetricsService } from "./services/metricsService.js";
+import { DrawProofService } from "./services/drawProofService.js";
+import { FeatureFlagService } from "./services/featureFlagService.js";
+import { drawProofRoutes } from "./routes/drawProofs.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { csrfProtection } from "./middleware/csrfProtection.js";
+import { etagPlugin } from "./middleware/etag.js";
+import { requireApiKey } from "./middleware/api-key-auth.js";
+import { createLogger } from "./logger.js";
+import { ok } from "./responses.js";
+import type { Logger } from "pino";
+import type { CacheService } from "./services/cacheService.js";
+import { walletAuthRoutes } from "./routes/walletAuth.js";
+import { WalletAuthService } from "./services/walletAuth.js";
+import { requirePermission, walletSessionResolver } from "./middleware/rbac.js";
+import { transactionMetricsRoutes } from "./routes/transactionMetrics.js";
+import { CategoryService } from "./services/categoryService.js";
+import { categoriesRoutes } from "./routes/categories.js";
+import { NotificationService } from "./services/notificationService.js";
+import { notificationsRoutes } from "./routes/notifications.js";
+import { DashboardAggregateService } from "./services/dashboardAggregateService.js";
+import { dashboardAggregatesRoutes } from "./routes/dashboardAggregates.js";
+import { EmailService } from "./services/emailService.js";
+import { DataExportService } from "./services/dataExport.js";
+import { DataImportService } from "./services/dataImport.js";
+import { exportsRoutes } from "./routes/exports.js";
+import { importsRoutes } from "./routes/imports.js";
 import { permissionPreviewRoutes } from "./routes/permissionPreview.js";
 import { SensitiveFieldAccessLogger } from "../../lib/sensitive-field-access.js";
 import { OperationalHealthService } from "./services/operationalHealthService.js";
@@ -118,6 +139,26 @@ export type AppDeps = {
   monitorLatencyBudgetMs?: number;
   /** Dedicated rate-limit bucket for monitor traffic. */
   monitorClientIp?: string;
+  // #812–#815
+  auditTrailStore?: AuditTrailStore;
+  receiptSigningSecret?: string;
+  receiptPreviousPublicKeys?: string[];
+  pendingStaleThresholdMs?: number;
+  recoveryMaxAttempts?: number;
+  operationLimits?: string;
+  // #802
+  searchIndexService?: SearchIndexService;
+  searchIndexRepairService?: SearchIndexRepairService;
+  // #791
+  impersonationStore?: InstanceType<typeof InMemoryImpersonationStore>;
+  // #799
+  webhookEventStore?: WebhookEventStore;
+  webhookService?: WebhookService;
+  webhookSecret?: string;
+  stripeWebhookSecret?: string;
+  stellarWebhookPublicKey?: string;
+  webhookToleranceSeconds?: number;
+  webhookHooks?: WebhookHandlerHooks;
 };
 
 declare module "fastify" {
@@ -168,7 +209,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       timeWindow: 60_000, // 1 minute
       keyGenerator(req: FastifyRequest) {
         return (
-          req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() ||
+          req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ??
           req.ip
         );
       },
@@ -208,9 +249,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   app.addHook("onResponse", async (req, reply) => {
-    const startTime =
-      (req.raw as unknown as { tempStartTime?: number }).tempStartTime ??
-      performance.now();
+    const startTime = (req.raw as any).tempStartTime || performance.now();
     const duration = performance.now() - startTime;
     const route = req.routeOptions?.url ?? "unmatched";
     req.log.info(
@@ -236,8 +275,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     idempotencySvc,
   );
   const metricsSvc = new MetricsService(deps.prisma);
-  const supportAccessSvc = new SupportAccessService(deps.prisma);
-  const importSvc = new ImportService(deps.prisma, svc);
 
   // Feature flag service for runtime toggles
   const featureFlagSvc = new FeatureFlagService(deps.prisma);
@@ -257,7 +294,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (jobQueue) {
     const worker = new JobWorker({
       queue: jobQueue,
-      handlers: createJobHandlers({ drawProofs: drawProofSvc }),
+      handlers: createJobHandlers({
+        drawProofs: drawProofSvc,
+        cacheRepair: null as any,
+      }),
       logger: loggerInstance,
       pollIntervalMs: deps.jobWorkerPollIntervalMs,
     });
@@ -484,12 +524,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     ),
   );
 
-  // Support access routes (#support-access) — already instantiated above as supportAccessSvc
-  app.register(supportAccessRoutes(supportAccessSvc, deps.internalSecret));
-
-  // Secure import pipeline (#imports) — operator-only, service-secret protected
-  app.register(internalImportsRoutes(importSvc, deps.internalSecret));
-
   // #812–#815 routes. Every privileged route re-checks permissions server-side.
   app.register(
     receiptsRoutes(receiptSvc, {
@@ -585,16 +619,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       },
     ),
   );
-
-  // Synthetic journey monitor (#monitor). Attached after every other route so
-  // its in-process HTTP journey can see the full surface.
-  const monitorRunner = attachSyntheticMonitor(app, {
-    internalSecret: deps.internalSecret,
-    latencyBudgetMs: deps.monitorLatencyBudgetMs,
-    clientIp: deps.monitorClientIp,
-    logger: deps.logger,
-  });
-  app.register(monitorRoutes(monitorRunner, deps.internalSecret));
 
   // Central Error Handler Middleware
   app.setErrorHandler(errorHandler);

@@ -21,6 +21,7 @@ import { metricsRoutes } from "./routes/metrics.js";
 import { usersRoutes } from "./routes/users.js";
 import { prometheusRoutes } from "./routes/prometheus.js";
 import { healthRoutes } from "./routes/health.js";
+import type { DegradedModeService } from "./services/degradedModeService.js";
 import { MetricsService } from "./services/metricsService.js";
 import { DrawProofService } from "./services/drawProofService.js";
 import { FeatureFlagService } from "./services/featureFlagService.js";
@@ -137,6 +138,8 @@ export type AppDeps = {
   jobWorkerPollIntervalMs?: number;
   /** Comma-separated Soroban RPC endpoints used by dependency diagnostics. */
   sorobanRpcUrls?: string;
+  degradedModeService?: DegradedModeService;
+  jobQueue?: JobQueue;
 };
 
 declare module "fastify" {
@@ -260,9 +263,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const schemaVersionSvc = new SchemaVersionService(deps.prisma);
   const auditSvc = new AuditService(deps.prisma);
 
-  const jobQueue = deps.jobStore
+  const jobQueue = deps.jobQueue || (deps.jobStore
     ? new JobQueue({ store: deps.jobStore })
-    : undefined;
+    : undefined);
   if (jobQueue) {
     const worker = new JobWorker({
       queue: jobQueue,
@@ -388,7 +391,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     prisma: deps.prisma,
     cacheService: deps.cacheService,
     rpcUrls: deps.sorobanRpcUrls,
-  }));
+  }, deps.degradedModeService));
   app.register(savedPoolsRoutes(savedPoolsSvc));
   app.register(schemaVersionRoutes(schemaVersionSvc));
   app.register(

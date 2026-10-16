@@ -85,6 +85,14 @@ export const jobsRoutes = (
       return ok((await queue.listJobs(q)).map(serializeJob));
     });
 
+    app.get("/internal/jobs/pressure", { preHandler: [guard] }, async () => {
+      if (!queue.backpressureManager) {
+        return ok({ enabled: false });
+      }
+      const metrics = await queue.backpressureManager.getMetrics();
+      return ok({ enabled: true, metrics });
+    });
+
     // Stale-cache inspection and repair are opt-in: they only register when the
     // caller wires a detector/repairer, and use a literal segment so they can
     // never collide with `/internal/jobs/:id` (find-my-way rejects duplicate

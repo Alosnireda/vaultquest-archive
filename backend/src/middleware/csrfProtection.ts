@@ -17,7 +17,9 @@ import { ERROR_CODES } from "../constants.js";
 import { AppError } from "../errors.js";
 import { randomUUID } from "node:crypto";
 
-function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+function parseCookies(
+  cookieHeader: string | undefined,
+): Record<string, string> {
   const cookies: Record<string, string> = {};
   if (!cookieHeader) return cookies;
   const pairs = cookieHeader.split(";");
@@ -50,7 +52,10 @@ const plugin: FastifyPluginAsync = async (app) => {
         let csrfToken = cookies["csrf-token"];
         if (!csrfToken) {
           csrfToken = randomUUID();
-          reply.header("Set-Cookie", `csrf-token=${csrfToken}; Path=/; HttpOnly; SameSite=Lax`);
+          reply.header(
+            "Set-Cookie",
+            `csrf-token=${csrfToken}; Path=/; HttpOnly; SameSite=Lax`,
+          );
         }
         reply.header("X-CSRF-Token", csrfToken);
       }
@@ -62,10 +67,16 @@ const plugin: FastifyPluginAsync = async (app) => {
     const cookieToken = cookies["csrf-token"];
     const headerToken = req.headers["x-csrf-token"];
 
-    const headerTokenStr = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+    const headerTokenStr = Array.isArray(headerToken)
+      ? headerToken[0]
+      : headerToken;
 
     if (!cookieToken || !headerTokenStr || cookieToken !== headerTokenStr) {
-      throw new AppError(ERROR_CODES.FORBIDDEN, 403, "Invalid or missing CSRF token");
+      throw new AppError(
+        ERROR_CODES.FORBIDDEN,
+        403,
+        "Invalid or missing CSRF token",
+      );
     }
   });
 };

@@ -35,14 +35,14 @@ It checks the complete local contributor environment in one pass and prints a pa
 
 What it verifies:
 
-| Area | Check |
-|---|---|
-| Tooling | Node 20+, pnpm, Docker daemon reachable via `pnpm run doctor` |
-| Dependencies | `node_modules` installed and Prisma client generated |
-| Configuration | `.env` present and validated against the Zod boot schema |
-| Database | Postgres 16 connectivity, migration status, and seed fixtures |
+| Area              | Check                                                              |
+| ----------------- | ------------------------------------------------------------------ |
+| Tooling           | Node 20+, pnpm, Docker daemon reachable via `pnpm run doctor`      |
+| Dependencies      | `node_modules` installed and Prisma client generated               |
+| Configuration     | `.env` present and validated against the Zod boot schema           |
+| Database          | Postgres 16 connectivity, migration status, and seed fixtures      |
 | Integration mocks | Local event-indexer and wallet-rpc mocks configured and responsive |
-| Test fixtures | Required fixture files present and parseable |
+| Test fixtures     | Required fixture files present and parseable                       |
 
 The command is read-only against your database: migration and seed checks use `introspection `/ `SELECT` queries only. It never runs migrations, seeds, or writes, and it never touches production data. By default it targets the local `.env` configuration; pass `--env <path>` to check a different file.
 
@@ -57,24 +57,36 @@ Exit code is `0` when every check passes and non-zero when any check fails, so i
 
 ## Endpoints
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET  | /health | Liveness probe |
-| POST | /actions | Create intent (requires `Idempotency-Key: <uuid>`) |
-| PATCH | /actions/:id/submitted | Attach `tx_hash` after wallet broadcasts |
-| POST | /actions/:id/cancel | Mark a pending intent failed |
-| GET | /actions/:id | Read a single action |
-| GET | /actions?wallet=G...&status=&cursor=&limit= | Paginated activity history |
-| GET | /dashboard/summary?wallet=G...&stale_after_ms= | Per-wallet rollup for the dashboard (#14) |
-| GET | /saved-pools?wallet=G... | Saved-pools watchlist entries |
-| POST | /saved-pools | Save or update a pool watchlist entry |
-| DELETE | /saved-pools/:poolId?wallet=G... | Remove a saved pool from a wallet watchlist |
-| DELETE | /actions?wallet=G... | Privacy scrub (nulls payload, sets redacted_at) |
-| POST | /internal/reconcile | Event indexer → ledger (requires `X-Internal-Secret`) |
-| POST | /internal/imports/dry-run | Validate a bulk import without writing; report create/update/skip/duplicate/error counts and conflicts |
-| POST | /internal/reconciliation/repair | Manual repair command (dry-run by default, audit output) |
+| Method | Path                                           | Purpose                                                                                                |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| GET    | /health                                        | Liveness probe                                                                                         |
+| POST   | /actions                                       | Create intent (requires `Idempotency-Key: <uuid>`)                                                     |
+| PATCH  | /actions/:id/submitted                         | Attach `tx_hash` after wallet broadcasts                                                               |
+| POST   | /actions/:id/cancel                            | Mark a pending intent failed                                                                           |
+| GET    | /actions/:id                                   | Read a single action                                                                                   |
+| GET    | /actions?wallet=G...&status=&cursor=&limit=    | Paginated activity history                                                                             |
+| GET    | /dashboard/summary?wallet=G...&stale_after_ms= | Per-wallet rollup for the dashboard (#14)                                                              |
+| GET    | /saved-pools?wallet=G...                       | Saved-pools watchlist entries                                                                          |
+| POST   | /saved-pools                                   | Save or update a pool watchlist entry                                                                  |
+| DELETE | /saved-pools/:poolId?wallet=G...               | Remove a saved pool from a wallet watchlist                                                            |
+| DELETE | /actions?wallet=G...                           | Privacy scrub (nulls payload, sets redacted_at)                                                        |
+| POST   | /internal/reconcile                            | Event indexer → ledger (requires `X-Internal-Secret`)                                                  |
+| POST   | /internal/imports/dry-run                      | Validate a bulk import without writing; report create/update/skip/duplicate/error counts and conflicts |
+| POST   | /internal/reconciliation/repair                | Manual repair command (dry-run by default, audit output)                                               |
+| POST   | /internal/synthetic-monitor/run                | Execute synthetic journey monitor now (requires `X-Internal-Secret`)                                   |
+| GET    | /internal/synthetic-monitor/status             | Last synthetic journey result (requires `X-Internal-Secret`)                                           |
+| POST   | /internal/support-access/grants                | Create a time-bounded, scoped support grant (requires `X-Internal-Secret`)                             |
+| POST   | /internal/support-access/grants/:id/revoke     | Revoke a support grant (requires `X-Internal-Secret`)                                                  |
+| POST   | /internal/support-access/access                | Exercise a support grant against its scope (requires `X-Internal-Secret`)                              |
+| GET    | /internal/support-access/grants/:id/audit      | Audit trail for a grant (requires `X-Internal-Secret`)                                                 |
+| GET    | /internal/support-access/audit/verify          | Verify the global audit hash chain (requires `X-Internal-Secret`)                                      |
+| GET    | /support-access/notices?wallet=G...            | User-safe notices for a wallet (public)                                                                |
+| POST   | /internal/imports/preview                      | Preview + quarantine CSV rows, no ledger writes (requires `X-Internal-Secret`)                         |
+| POST   | /internal/imports/:id/commit                   | Apply accepted rows as traceable `select_winner` actions (requires `X-Internal-Secret`)                |
+| POST   | /internal/imports/:id/rollback                 | Roll back not-yet-broadcast rows (requires `X-Internal-Secret`)                                        |
+| GET    | /internal/imports/:id                          | Batch + row traceability report (requires `X-Internal-Secret`)                                         |
 
-For the manual repair command contract, see [`docs/MANUAL_REPAIR.md`](docs/MANUAL_REPAIR.md). See `docs/superpowers/specs/2026-04-23-action-ledger-design.md` for the full contract, and [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the service layout, schema, worker runtime, and migration strategy. For background drift detection, automated repair pipelines, and quarantine incident response, see [`docs/RECONCILIATION.md`](../docs/RECONCILIATION.md). For response envelopes, errors, and pagination, see [`docs/API_RESPONSES.md`](../docs/API_RESPONSES.md). For how the frontend should submit, poll, and **retry** these endpoints safely, see [`docs/transaction-status-api.md`](../docs/transaction-status-api.md). Indexer contributors should also follow the contract [`event schema`](../contracts/docs/EVENT_SCHEMA.md) and [`pause/recovery model`](../contracts/docs/PAUSE_RECOVERY.md). For how confirmations become quest completions and reward grants (idempotency, reorg correction, and the current payout state), see [`docs/QUEST_REWARDS.md`](../docs/QUEST_REWARDS.md).
+For the manual repair command contract, see [`docs/MANUAL_REPAIR.md`](docs/MANUAL_REPAIR.md). See `docs/superpowers/specs/2026-04-23-action-ledger-design.md` for the full contract, and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the service layout, schema, worker runtime, and migration strategy. For background drift detection, automated repair pipelines, and quarantine incident response, see [`docs/RECONCILIATION.md`](../docs/RECONCILIATION.md). For response envelopes, errors, and pagination, see [`docs/API_RESPONSES.md`](./docs/API_RESPONSES.md). For how the frontend should submit, poll, and **retry** these endpoints safely, see [`docs/transaction-status-api.md`](./docs/transaction-status-api.md). Indexer contributors should also follow the contract [`event schema`](../contracts/docs/EVENT_SCHEMA.md) and [`pause/recovery model`](../contracts/docs/PAUSE_RECOVERY.md). For how confirmations become quest completions and reward grants (idempotency, reorg correction, and the current payout state), see [`docs/QUEST_REWARDS.md`](../docs/QUEST_REWARDS.md). Security hardening work is documented in [`docs/SECURITY_BOUNDARIES.md`](./docs/SECURITY_BOUNDARIES.md) (exports/rendering/webhooks), [`docs/SYNTHETIC_MONITOR.md`](./docs/SYNTHETIC_MONITOR.md) (scheduled journey monitor), [`docs/SUPPORT_ACCESS.md`](./docs/SUPPORT_ACCESS.md) (time-bounded maintainer access + immutable audit trail), and [`docs/IMPORT_PIPELINE.md`](./docs/IMPORT_PIPELINE.md) (preview/quarantine/commit/rollback imports).
 
 ## Environment
 
@@ -82,10 +94,10 @@ See `.env.example`. All values are validated at boot via Zod. Background worker 
 
 ## Errors, telemetry, jobs and the API contract
 
-* Error codes, categories and user-safe messages: [`../docs/API.md#standard-errors`](../docs/API.md#standard-errors) (`src/errorTaxonomy.ts`).
-* Metrics, structured log fields and dashboard queries: [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
-* Background worker, retry policy, dead-letter handling and local instructions: [`docs/BACKGROUND_JOBS.md`](docs/BACKGROUND_JOBS.md).
-* The public API contract is checked by `tests/apiContract.spec.ts`; update `../docs/API.md` and `src/contracts/apiContract.ts` together with any response change.
+- Error codes, categories and user-safe messages: [`../docs/API.md#standard-errors`](../docs/API.md#standard-errors) (`src/errorTaxonomy.ts`).
+- Metrics, structured log fields and dashboard queries: [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
+- Background worker, retry policy, dead-letter handling and local instructions: [`docs/BACKGROUND_JOBS.md`](docs/BACKGROUND_JOBS.md).
+- The public API contract is checked by `tests/apiContract.spec.ts`; update `../docs/API.md` and `src/contracts/apiContract.ts` together with any response change.
 
 ## Bulk import dry-run
 
@@ -116,8 +128,19 @@ Response (200):
   "totalRows": 2,
   "counts": { "create": 1, "update": 0, "skip": 0, "duplicate": 1, "error": 0 },
   "rows": [
-    { "index": 0, "action": "create", "wallet": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "poolId": "pool-1" },
-    { "index": 1, "action": "duplicate", "wallet": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "poolId": "pool-1", "duplicateOf": 0 }
+    {
+      "index": 0,
+      "action": "create",
+      "wallet": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "poolId": "pool-1"
+    },
+    {
+      "index": 1,
+      "action": "duplicate",
+      "wallet": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "poolId": "pool-1",
+      "duplicateOf": 0
+    }
   ],
   "conflicts": [],
   "errors": []
@@ -128,12 +151,12 @@ When a row fails validation the dry run returns `200` with a `duplicate`/`error`
 
 ### Input format
 
-| Field | Required | Notes |
-|---|---|---|
-| `source` | yes | Opaque import batch identifier, echoed back in the report |
-| `delimiter` | no | Only `,` or `\t`; defaults to `,`. Used when columns are declared and rows are strings |
-| `columns` | yes | Ordered column names; must include `wallet`, `poolId`, `amount`, `asset`, `occurredAt` |
-| `rows` | yes | Array of objects keyed by column name, or array of delimiter-separated strings |
+| Field       | Required | Notes                                                                                  |
+| ----------- | -------- | -------------------------------------------------------------------------------------- |
+| `source`    | yes      | Opaque import batch identifier, echoed back in the report                              |
+| `delimiter` | no       | Only `,` or `\t`; defaults to `,`. Used when columns are declared and rows are strings |
+| `columns`   | yes      | Ordered column names; must include `wallet`, `poolId`, `amount`, `asset`, `occurredAt` |
+| `rows`      | yes      | Array of objects keyed by column name, or array of delimiter-separated strings         |
 
 Validation rules (enforced by `Zod` in `src/imports/dryRun.ts`):
 
@@ -155,6 +178,7 @@ Tests use Testcontainers to spin up Postgres 16 per run. Docker must be availabl
 ```bash
 pnpm test
 ```
+
 # Post-restore validation
 
 After restoring a backup, run the backend db:validate-restore script with

@@ -10,6 +10,9 @@ import { LedgerService } from "./services/ledger.js";
 import { SavedPoolsService } from "./services/savedPools.js";
 import { SchemaVersionService } from "./services/schemaVersionService.js";
 import { AuditService } from "./services/auditService.js";
+import { ImportService } from "./services/importService.js";
+import { SupportAccessService } from "./services/supportAccessService.js";
+import { attachSyntheticMonitor } from "./services/syntheticMonitor.js";
 import { actionsRoutes } from "./routes/actions.js";
 import { savedPoolsRoutes } from "./routes/savedPools.js";
 import { schemaVersionRoutes } from "./routes/schemaVersion.js";
@@ -21,33 +24,9 @@ import { metricsRoutes } from "./routes/metrics.js";
 import { usersRoutes } from "./routes/users.js";
 import { prometheusRoutes } from "./routes/prometheus.js";
 import { healthRoutes } from "./routes/health.js";
-import { MetricsService } from "./services/metricsService.js";
-import { DrawProofService } from "./services/drawProofService.js";
-import { FeatureFlagService } from "./services/featureFlagService.js";
-import { drawProofRoutes } from "./routes/drawProofs.js";
-import { errorHandler } from "./middleware/errorHandler.js";
-import { csrfProtection } from "./middleware/csrfProtection.js";
-import { etagPlugin } from "./middleware/etag.js";
-import { requireApiKey } from "./middleware/api-key-auth.js";
-import { createLogger } from "./logger.js";
-import { ok } from "./responses.js";
-import type { Logger } from "pino";
-import type { CacheService } from "./services/cacheService.js";
-import { walletAuthRoutes } from "./routes/walletAuth.js";
-import { WalletAuthService } from "./services/walletAuth.js";
-import { requirePermission, walletSessionResolver } from "./middleware/rbac.js";
-import { transactionMetricsRoutes } from "./routes/transactionMetrics.js";
-import { CategoryService } from "./services/categoryService.js";
-import { categoriesRoutes } from "./routes/categories.js";
-import { NotificationService } from "./services/notificationService.js";
-import { notificationsRoutes } from "./routes/notifications.js";
-import { DashboardAggregateService } from "./services/dashboardAggregateService.js";
-import { dashboardAggregatesRoutes } from "./routes/dashboardAggregates.js";
-import { EmailService } from "./services/emailService.js";
-import { DataExportService } from "./services/dataExport.js";
-import { DataImportService } from "./services/dataImport.js";
-import { exportsRoutes } from "./routes/exports.js";
-import { importsRoutes } from "./routes/imports.js";
+import { importsRoutes, internalImportsRoutes } from "./routes/imports.js";
+import { supportAccessRoutes } from "./routes/supportAccess.js";
+import { monitorRoutes } from "./routes/monitor.js";
 import { permissionPreviewRoutes } from "./routes/permissionPreview.js";
 import { SensitiveFieldAccessLogger } from "../../lib/sensitive-field-access.js";
 import { OperationalHealthService } from "./services/operationalHealthService.js";
@@ -56,7 +35,10 @@ import { privacyAnalyticsRoutes } from "./routes/privacyAnalytics.js";
 import { TrendAggregationService } from "./services/trendAggregationService.js";
 import { trendAggregationRoutes } from "./routes/trendAggregation.js";
 import { IdempotencyService } from "./services/idempotencyService.js";
-import { ImpersonationService, InMemoryImpersonationStore } from "./services/impersonation.js";
+import {
+  ImpersonationService,
+  InMemoryImpersonationStore,
+} from "./services/impersonation.js";
 import { impersonationRoutes } from "./routes/impersonation.js";
 import { createImpersonationHook } from "./middleware/impersonation.js";
 import { PartialFailureService } from "./services/partialFailureService.js";
@@ -71,10 +53,7 @@ import {
   drawProofJobKey,
 } from "./worker/handlers.js";
 import { jobsRoutes } from "./routes/jobs.js";
-import {
-  ReceiptService,
-  StellarReceiptSigner,
-} from "./services/receipts.js";
+import { ReceiptService, StellarReceiptSigner } from "./services/receipts.js";
 import {
   AuditTrailService,
   type AuditTrailStore,
@@ -101,9 +80,7 @@ import {
   enforceOperationLimit,
   chainPreHandlers,
 } from "./middleware/operationLimit.js";
-import {
-  PendingRecoveryService,
-} from "./services/pendingRecovery.js";
+import { PendingRecoveryService } from "./services/pendingRecovery.js";
 import { receiptsRoutes } from "./routes/receipts.js";
 import { recoveryRoutes } from "./routes/recovery.js";
 import { auditTrailRoutes } from "./routes/auditTrail.js";
@@ -137,6 +114,10 @@ export type AppDeps = {
   jobWorkerPollIntervalMs?: number;
   /** Comma-separated Soroban RPC endpoints used by dependency diagnostics. */
   sorobanRpcUrls?: string;
+  /** Synthetic monitor latency budget in ms (default 5000). */
+  monitorLatencyBudgetMs?: number;
+  /** Dedicated rate-limit bucket for monitor traffic. */
+  monitorClientIp?: string;
 };
 
 declare module "fastify" {
@@ -153,10 +134,16 @@ declare module "fastify" {
 export function buildApp(deps: AppDeps): FastifyInstance {
   const loggerInstance = deps.logger || createLogger("silent");
   const sensitiveFields = new SensitiveFieldAccessLogger(undefined, (entry) => {
-    loggerInstance.info({ event: "sensitive_field_access", ...entry }, "sensitive field access");
+    loggerInstance.info(
+      { event: "sensitive_field_access", ...entry },
+      "sensitive field access",
+    );
   });
   sensitiveFields.onAnomaly((anomaly) => {
-    loggerInstance.warn({ event: "sensitive_access_anomaly", ...anomaly }, "sensitive access anomaly");
+    loggerInstance.warn(
+      { event: "sensitive_access_anomaly", ...anomaly },
+      "sensitive access anomaly",
+    );
   });
   const app = Fastify({
     // Fastify 5 passes logger instances via `loggerInstance`; `logger` only
@@ -221,7 +208,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   app.addHook("onResponse", async (req, reply) => {
-    const startTime = (req.raw as any).tempStartTime || performance.now();
+    const startTime =
+      (req.raw as unknown as { tempStartTime?: number }).tempStartTime ??
+      performance.now();
     const duration = performance.now() - startTime;
     const route = req.routeOptions?.url ?? "unmatched";
     req.log.info(
@@ -244,9 +233,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     deps.prisma,
     deps.cacheService,
     deps.categoriesCacheTtlSeconds,
-    idempotencySvc
+    idempotencySvc,
   );
   const metricsSvc = new MetricsService(deps.prisma);
+  const supportAccessSvc = new SupportAccessService(deps.prisma);
+  const importSvc = new ImportService(deps.prisma, svc);
 
   // Feature flag service for runtime toggles
   const featureFlagSvc = new FeatureFlagService(deps.prisma);
@@ -313,7 +304,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   // #815: counters live in Redis when available so every replica enforces
   // the same limits; otherwise per process.
-  const redisForLimits = deps.cacheService?.redisClient as unknown as RedisLikeClient | null | undefined;
+  const redisForLimits = deps.cacheService?.redisClient as unknown as
+    RedisLikeClient | null | undefined;
   const operationLimits = new OperationLimitService({
     policies: resolveOperationPolicies(deps.operationLimits),
     counters: redisForLimits
@@ -327,8 +319,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.addHook(
     "preHandler",
     operationLimitsHook(operationLimits, [
-      { method: "POST", url: "/actions", operation: "action.create", walletHint: bodyWallet("wallet_address") },
-      { method: "POST", url: "/wallet-auth/challenge", operation: "wallet_auth.challenge" },
+      {
+        method: "POST",
+        url: "/actions",
+        operation: "action.create",
+        walletHint: bodyWallet("wallet_address"),
+      },
+      {
+        method: "POST",
+        url: "/wallet-auth/challenge",
+        operation: "wallet_auth.challenge",
+      },
     ]),
   );
 
@@ -371,7 +372,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const notificationSvc = new NotificationService(
     deps.prisma,
     deps.reminderLeadHours,
-    idempotencySvc
+    idempotencySvc,
   );
   const dashboardAggregateSvc = new DashboardAggregateService(deps.prisma);
   const operationalHealthSvc = new OperationalHealthService(deps.prisma);
@@ -384,11 +385,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }),
   );
   app.register(walletAuthRoutes(walletAuthSvc));
-  app.register(healthRoutes(svc, {
-    prisma: deps.prisma,
-    cacheService: deps.cacheService,
-    rpcUrls: deps.sorobanRpcUrls,
-  }));
+  app.register(
+    healthRoutes(svc, {
+      prisma: deps.prisma,
+      cacheService: deps.cacheService,
+      rpcUrls: deps.sorobanRpcUrls,
+    }),
+  );
   app.register(savedPoolsRoutes(savedPoolsSvc));
   app.register(schemaVersionRoutes(schemaVersionSvc));
   app.register(
@@ -405,7 +408,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   );
   app.register(privacyAnalyticsRoutes(deps.prisma, deps.internalSecret));
   if (jobQueue) app.register(jobsRoutes(jobQueue, deps.internalSecret));
-  app.register(usersRoutes, { prefix: "/api/users", prisma: deps.prisma, accessLogger: sensitiveFields });
+  app.register(usersRoutes, {
+    prefix: "/api/users",
+    prisma: deps.prisma,
+    accessLogger: sensitiveFields,
+  });
   app.register(metricsRoutes(metricsSvc, apiKeyGuard));
   app.register(prometheusRoutes);
   app.register(drawProofRoutes(drawProofSvc));
@@ -423,8 +430,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.register(trendAggregationRoutes(trendAggregationSvc, apiKeyGuard));
 
   // Permission-aware search indexing & repair (#802)
-  const searchIndexSvc =
-    deps.searchIndexService || new SearchIndexService();
+  const searchIndexSvc = deps.searchIndexService || new SearchIndexService();
   const searchRepairSvc =
     deps.searchIndexRepairService ||
     new SearchIndexRepairService(deps.prisma, searchIndexSvc, loggerInstance);
@@ -440,19 +446,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   );
 
   // Wallet-scoped data portability (#772, #773). Authorization is enforced by
-  app.register(permissionPreviewRoutes(requirePermission("admin.audit.write", [walletPrincipal])));
+  app.register(
+    permissionPreviewRoutes(
+      requirePermission("admin.audit.write", [walletPrincipal]),
+    ),
+  );
   // the permission guards and by the services' own wallet-scope checks.
-  const exportSvc = new DataExportService({
-    listActions: ({ walletAddress, cursor, limit }) =>
-      svc.listActions({ walletAddress, cursor, limit }),
-    listSavedPools: (wallet, cursor, limit) =>
-      savedPoolsSvc.listSavedPools(wallet, cursor, limit),
-  }, sensitiveFields);
+  const exportSvc = new DataExportService(
+    {
+      listActions: ({ walletAddress, cursor, limit }) =>
+        svc.listActions({ walletAddress, cursor, limit }),
+      listSavedPools: (wallet, cursor, limit) =>
+        savedPoolsSvc.listSavedPools(wallet, cursor, limit),
+    },
+    sensitiveFields,
+  );
   app.register(
     exportsRoutes(
       exportSvc,
       chainPreHandlers(
-        requirePermission("own.data.export", [walletPrincipal], sensitiveFields),
+        requirePermission(
+          "own.data.export",
+          [walletPrincipal],
+          sensitiveFields,
+        ),
         enforceOperationLimit(operationLimits, "data.export"),
       ),
     ),
@@ -466,6 +483,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       ),
     ),
   );
+
+  // Support access routes (#support-access) — already instantiated above as supportAccessSvc
+  app.register(supportAccessRoutes(supportAccessSvc, deps.internalSecret));
+
+  // Secure import pipeline (#imports) — operator-only, service-secret protected
+  app.register(internalImportsRoutes(importSvc, deps.internalSecret));
 
   // #812–#815 routes. Every privileged route re-checks permissions server-side.
   app.register(
@@ -535,7 +558,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         internal: deps.webhookSecret ?? deps.internalSecret,
         stripe: deps.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET,
         stellarPublicKey:
-          deps.stellarWebhookPublicKey ?? process.env.STELLAR_WEBHOOK_PUBLIC_KEY,
+          deps.stellarWebhookPublicKey ??
+          process.env.STELLAR_WEBHOOK_PUBLIC_KEY,
         custom: deps.webhookSecret ?? deps.internalSecret,
       },
       defaultToleranceSeconds: deps.webhookToleranceSeconds,
@@ -549,22 +573,31 @@ export function buildApp(deps: AppDeps): FastifyInstance {
           const poolId = event.payload?.data?.pool_id || event.payload?.pool_id;
           deps.logger?.info(
             { poolId, eventId: event.eventId },
-            "Prize draw completed webhook received"
+            "Prize draw completed webhook received",
           );
         },
         onVaultDeposit: async (event) => {
           deps.logger?.info(
             { eventId: event.eventId },
-            "Vault deposit webhook received"
+            "Vault deposit webhook received",
           );
         },
-      }
-    )
+      },
+    ),
   );
+
+  // Synthetic journey monitor (#monitor). Attached after every other route so
+  // its in-process HTTP journey can see the full surface.
+  const monitorRunner = attachSyntheticMonitor(app, {
+    internalSecret: deps.internalSecret,
+    latencyBudgetMs: deps.monitorLatencyBudgetMs,
+    clientIp: deps.monitorClientIp,
+    logger: deps.logger,
+  });
+  app.register(monitorRoutes(monitorRunner, deps.internalSecret));
 
   // Central Error Handler Middleware
   app.setErrorHandler(errorHandler);
 
   return app;
 }
-

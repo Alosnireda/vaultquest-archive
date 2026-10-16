@@ -8,6 +8,7 @@ import { QuestService } from "./services/questService.js";
 import { BackupService } from "./services/backupService.js";
 import { NotificationService } from "./services/notificationService.js";
 import type { StellarIndexer, XdrDecoder } from "./services/stellarIndexer.js";
+import type { SyntheticRunResult } from "./services/syntheticMonitor.js";
 import { pingDatabase } from "./db.js";
 import type { LedgerService } from "./services/ledger.js";
 import { LeaseService } from "./services/leaseService.js";
@@ -642,7 +643,6 @@ export function startDataRetentionCron(opts: {
   return task;
 }
 
-
 /**
  * Periodically audits and repairs stale, missing, or mismatched search index records (#802).
  * Compares primary records in the database with the discovery search index and repairs
@@ -686,6 +686,37 @@ export function startSearchIndexRepairCron(opts: {
       );
     } catch (err) {
       opts.logger.error({ err }, "search index repair audit tick failed");
+    }
+  });
+  return task;
+}
+
+/**
+ * Runs the synthetic end-to-end journey on a schedule (#monitor). Configured
+ * via `SYNTHETIC_MONITOR_SCHEDULE`; keep the interval >= 5 minutes so two
+ * POSTs per run stay inside the monitor's own sensitive-route rate-limit
+ * bucket. Failures and latency are reported through the run result and logs.
+ */
+export function startSyntheticMonitorCron(opts: {
+  run: () => Promise<SyntheticRunResult>;
+  logger: Logger;
+  schedule?: string;
+}): cron.ScheduledTask {
+  const schedule = opts.schedule ?? "*/15 * * * *";
+  const task = cron.schedule(schedule, async () => {
+    try {
+      const result = await opts.run();
+      opts.logger.info(
+        {
+          status: result.status,
+          blame: result.blame,
+          total_duration_ms: result.total_duration_ms,
+          slowest_step: result.slowest_step,
+        },
+        "synthetic journey monitor complete",
+      );
+    } catch (err) {
+      opts.logger.error({ err }, "synthetic journey monitor run crashed");
     }
   });
   return task;

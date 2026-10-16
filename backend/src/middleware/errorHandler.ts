@@ -43,6 +43,15 @@ export function errorHandler(
       // #815: user-safe structured details + standard Retry-After header.
       details = err.limitDetails;
       reply.header("Retry-After", String(err.retryAfterSeconds));
+    } else if (err.name === "QueueBackpressureError") {
+      const qErr = err as any;
+      const retrySecs = Math.max(1, Math.ceil((qErr.retryAfterMs ?? 5000) / 1000));
+      reply.header("Retry-After", String(retrySecs));
+      details = {
+        retry_after_ms: qErr.retryAfterMs,
+        current_depth: qErr.currentDepth,
+        max_capacity: qErr.maxCapacity
+      };
     }
   } else if (err instanceof ZodError) {
     statusCode = 400;

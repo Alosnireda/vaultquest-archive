@@ -5,27 +5,41 @@ import type { JobStore } from "./jobStore.js";
 import { DEFAULT_RETRY_POLICY, nextDelayMs, toJobFailure, type RetryPolicy } from "./retryPolicy.js";
 import { NonRetryableJobError, type EnqueueInput, type JobHandler, type JobRecord, type ListJobsParams } from "./types.js";
 
+import type { AdmissionOptions, QueueBackpressureManager } from "./queueBackpressure.js";
+
 export interface JobQueueOptions {
   store: JobStore;
   /** Default policy; `maxAttempts` may be overridden per enqueue. */
   policy?: RetryPolicy;
   now?: () => Date;
+  backpressureManager?: QueueBackpressureManager;
 }
 
 /** Producer/inspection side: enqueue jobs and look at their state. */
 export class JobQueue {
   readonly store: JobStore;
   readonly policy: RetryPolicy;
+  readonly backpressureManager?: QueueBackpressureManager;
   private readonly now: () => Date;
 
   constructor(opts: JobQueueOptions) {
     this.store = opts.store;
     this.policy = opts.policy ?? DEFAULT_RETRY_POLICY;
     this.now = opts.now ?? (() => new Date());
+    this.backpressureManager = opts.backpressureManager;
   }
 
   /** Idempotent: repeating an enqueue with the same key returns the existing job. */
-  enqueue<P>(input: EnqueueInput<P>): Promise<{ job: JobRecord<P>; created: boolean }> {
+  async enqueue<P>(
+    input: EnqueueInput<P>,
+    options?: AdmissionOptions
+  ): Promise<{ job: JobRecord<P>; created: boolean; dropped?: boolean; reason?: string }> {
+    if (this.backpressureManager) {
+      const admission = await this.backpressureManager.checkAdmission(input.type, options);
+      if (!admission.admitted) {
+        return { job: null as any, created: false, dropped: true, reason: admission.reason };
+      }
+    }
     return this.store.enqueue(
       { ...input, maxAttempts: input.maxAttempts ?? this.policy.maxAttempts },
       this.now()

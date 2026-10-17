@@ -125,3 +125,70 @@
 - `backend/prisma/migrations/20261001000001_add_partial_failures/migration.sql`
 - `backend/src/app.ts` — wired PartialFailureService + routes
 - `app/app/admin/partial-failures/page.jsx` — admin dashboard UI
+
+---
+
+## #991 – Add audit evidence for administrative configuration changes
+
+**Problem:** Administrative configuration adjustments (treasury fee basis points, round cadence, quorum thresholds, and emergency pause flags) lacked an immutable, tamper-evident cryptographic audit log that could detect covert database tampering or record gaps without incurring heavy on-chain Soroban storage rent.
+
+**Resolution:**
+- Implemented `AdminConfigAuditService` with an append-only cryptographic hash chain ($H_n = \text{SHA256}(\text{canonicalJson}(H_{n-1} \parallel \text{fields})))$ anchored at genesis ($H_0 = 0^{64}$).
+- Integrated parameter simulation to evaluate risk ratings (`none`, `low`, `medium`, `high`) and block stringency violations unless explicitly authorized.
+- Built chain verification (`verifyEvidenceChain`) to detect `ALTERED` records, `BROKEN_LINK` severed hash pointers, or `SEQUENCE_GAP` record omissions.
+- Added verifiable rollback evidence generation restoring previous values with forward provenance.
+- Provided structured multi-format export in JSON (with Merkle roots), streaming NDJSON, and RFC 4180 CSV.
+
+**Files changed:**
+- `backend/src/services/adminConfigAuditService.ts`
+- `backend/tests/adminConfigAudit.spec.ts`
+
+---
+
+## #993 – Implement duplicate suppression for notifications and webhooks
+
+**Problem:** Upstream Stellar Horizon event streams, blockchain indexers, and webhook relays operate under at-least-once delivery guarantees, leading to redundant user notifications and potential duplicate webhook executions during transient network retries.
+
+**Resolution:**
+- Implemented `DuplicateSuppressionService` providing dual-layer sliding-window deduplication.
+- Notification sliding window (300s) calculates canonical fingerprints to suppress duplicate alerts while allowing emergency bypass for critical-severity notifications and authorized maintainers.
+- Webhook deduplication state machine (`processing`, `processed`, `failed`) enforces concurrency locks, payload content hashing, and retry allowance on prior delivery failures.
+
+**Files changed:**
+- `backend/src/services/duplicateSuppressionService.ts`
+- `backend/tests/duplicateSuppression.spec.ts`
+
+---
+
+## #994 – Add retention and deletion tests for sensitive operational data
+
+**Problem:** Sensitive operational credentials and transient authentication records lacked exhaustive lifecycle validation, creating risks of lingering PII, replay vulnerabilities, or accidental deletion of active user sessions.
+
+**Resolution:**
+- Added automated lifecycle verification tests covering Stellar SEP-10 challenge purging (1-day TTL) vs active challenge preservation.
+- Validated 30-day session revocation and cleanup while strictly protecting active, unexpired sessions.
+- Validated 7-day TTL cleanup for action and job leases.
+- Tested failure handling for database query errors, mid-execution delete errors, and verified strict immunity for records under regulatory retention holds.
+- Fixed mock interface completeness in `dataRetention.spec.ts` to include `findMany` on `actionLedger`.
+
+**Files changed:**
+- `backend/tests/dataRetentionSensitiveData.spec.ts`
+- `backend/tests/dataRetention.spec.ts`
+
+---
+
+## #921 – Privacy-preserving audit evidence bundles for support investigations
+
+**Problem:** Customer support agents and auditors investigating failed deposits, prize round claims, or reconciliation anomalies needed exportable diagnostics, but exporting raw database records risked leaking Stellar secret keys, user passwords, and PII.
+
+**Resolution:**
+- Implemented `SupportEvidenceBundleService` to generate exportable, cryptographically verifiable diagnostic bundles.
+- Automatically redacts Stellar secret seeds (`S...`), Bearer tokens, passwords, JWTs, and PII into `[REDACTED_SECRET]` and `[REDACTED_PII]`.
+- Implemented salted HMAC-SHA256 pseudonymization for Stellar public keys (`anon_wallet_...`) in compliance with GDPR Article 4(5) & 32.
+- Preserved behavioral integrity (tx hashes, ledger sequences, financial amounts, error codes).
+- Added Merkle-style root checksum verification (`verifyBundle`) and support for JSON and streaming NDJSON exports.
+
+**Files changed:**
+- `backend/src/services/supportEvidenceBundleService.ts`
+- `backend/tests/supportEvidenceBundle.spec.ts`
+

@@ -26,11 +26,29 @@ export interface DependencyHealthDeps {
   timeoutMs?: number;
 }
 
+import type { DegradedModeService } from "../services/degradedModeService.js";
+
 export const healthRoutes = (
   svc: LedgerService,
   dependencyDeps?: DependencyHealthDeps,
+  degradedService?: DegradedModeService,
 ): FastifyPluginAsync =>
   async (app) => {
+    app.get("/health/degraded", async (_req, reply) => {
+      if (!degradedService) {
+        return ok({
+          status: "healthy",
+          userBanner: null,
+          dependencies: []
+        });
+      }
+      const status = degradedService.getUserSafeStatus();
+      if (status.status === "unavailable") {
+        reply.header("Retry-After", String(status.retryAfterSeconds ?? 30));
+        return reply.code(503).send(ok(status));
+      }
+      return ok(status);
+    });
     app.get("/health", async (req) => {
       req.log.debug({ event: "health_check" }, "health check requested");
       return ok({
@@ -114,16 +132,20 @@ export async function checkDependencies(deps: DependencyHealthDeps) {
         }
       });
       const outcomes = await Promise.all(endpoints.map(async (endpoint) => {
-        const response = await fetcher(endpoint.toString(), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        if (!response.ok) throw new Error("RPC health request failed");
-        const body = await response.json() as { result?: { status?: string }; error?: unknown };
-        if (body.error || !body.result) throw new Error("RPC returned an invalid health response");
-        return body.result.status === "healthy" || body.result.status === "active";
+        try {
+          const response = await fetcher(endpoint.toString(), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!response.ok) return false;
+          const body = await response.json() as { result?: { status?: string }; error?: unknown };
+          if (body.error || !body.result) return false;
+          return body.result.status === "healthy" || body.result.status === "active";
+        } catch {
+          return false;
+        }
       }));
       if (outcomes.every(Boolean)) {
         return { status: "healthy" as const, remediation: "No action required." };

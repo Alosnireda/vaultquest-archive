@@ -57,36 +57,24 @@ Exit code is `0` when every check passes and non-zero when any check fails, so i
 
 ## Endpoints
 
-| Method | Path                                           | Purpose                                                                                                |
-| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| GET    | /health                                        | Liveness probe                                                                                         |
-| POST   | /actions                                       | Create intent (requires `Idempotency-Key: <uuid>`)                                                     |
-| PATCH  | /actions/:id/submitted                         | Attach `tx_hash` after wallet broadcasts                                                               |
-| POST   | /actions/:id/cancel                            | Mark a pending intent failed                                                                           |
-| GET    | /actions/:id                                   | Read a single action                                                                                   |
-| GET    | /actions?wallet=G...&status=&cursor=&limit=    | Paginated activity history                                                                             |
-| GET    | /dashboard/summary?wallet=G...&stale_after_ms= | Per-wallet rollup for the dashboard (#14)                                                              |
-| GET    | /saved-pools?wallet=G...                       | Saved-pools watchlist entries                                                                          |
-| POST   | /saved-pools                                   | Save or update a pool watchlist entry                                                                  |
-| DELETE | /saved-pools/:poolId?wallet=G...               | Remove a saved pool from a wallet watchlist                                                            |
-| DELETE | /actions?wallet=G...                           | Privacy scrub (nulls payload, sets redacted_at)                                                        |
-| POST   | /internal/reconcile                            | Event indexer → ledger (requires `X-Internal-Secret`)                                                  |
-| POST   | /internal/imports/dry-run                      | Validate a bulk import without writing; report create/update/skip/duplicate/error counts and conflicts |
-| POST   | /internal/reconciliation/repair                | Manual repair command (dry-run by default, audit output)                                               |
-| POST   | /internal/synthetic-monitor/run                | Execute synthetic journey monitor now (requires `X-Internal-Secret`)                                   |
-| GET    | /internal/synthetic-monitor/status             | Last synthetic journey result (requires `X-Internal-Secret`)                                           |
-| POST   | /internal/support-access/grants                | Create a time-bounded, scoped support grant (requires `X-Internal-Secret`)                             |
-| POST   | /internal/support-access/grants/:id/revoke     | Revoke a support grant (requires `X-Internal-Secret`)                                                  |
-| POST   | /internal/support-access/access                | Exercise a support grant against its scope (requires `X-Internal-Secret`)                              |
-| GET    | /internal/support-access/grants/:id/audit      | Audit trail for a grant (requires `X-Internal-Secret`)                                                 |
-| GET    | /internal/support-access/audit/verify          | Verify the global audit hash chain (requires `X-Internal-Secret`)                                      |
-| GET    | /support-access/notices?wallet=G...            | User-safe notices for a wallet (public)                                                                |
-| POST   | /internal/imports/preview                      | Preview + quarantine CSV rows, no ledger writes (requires `X-Internal-Secret`)                         |
-| POST   | /internal/imports/:id/commit                   | Apply accepted rows as traceable `select_winner` actions (requires `X-Internal-Secret`)                |
-| POST   | /internal/imports/:id/rollback                 | Roll back not-yet-broadcast rows (requires `X-Internal-Secret`)                                        |
-| GET    | /internal/imports/:id                          | Batch + row traceability report (requires `X-Internal-Secret`)                                         |
+| Method | Path | Purpose |
+|---|---|---|
+| GET  | /health | Liveness probe |
+| POST | /actions | Create intent (requires `Idempotency-Key: <uuid>`) |
+| PATCH | /actions/:id/submitted | Attach `tx_hash` after wallet broadcasts |
+| POST | /actions/:id/cancel | Mark a pending intent failed |
+| GET | /actions/:id | Read a single action |
+| GET | /actions?wallet=G...&status=&cursor=&limit= | Paginated activity history |
+| GET | /dashboard/summary?wallet=G...&stale_after_ms= | Per-wallet rollup for the dashboard (#14) |
+| GET | /saved-pools?wallet=G... | Saved-pools watchlist entries |
+| POST | /saved-pools | Save or update a pool watchlist entry |
+| DELETE | /saved-pools/:poolId?wallet=G... | Remove a saved pool from a wallet watchlist |
+| DELETE | /actions?wallet=G... | Privacy scrub (nulls payload, sets redacted_at) |
+| POST | /internal/reconcile | Event indexer → ledger (requires `X-Internal-Secret`) |
+| POST | /internal/imports/dry-run | Validate a bulk import without writing; report create/update/skip/duplicate/error counts and conflicts |
+| POST | /internal/reconciliation/repair | Manual repair command (dry-run by default, audit output) |
 
-For the manual repair command contract, see [`docs/MANUAL_REPAIR.md`](docs/MANUAL_REPAIR.md). See `docs/superpowers/specs/2026-04-23-action-ledger-design.md` for the full contract, and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the service layout, schema, worker runtime, and migration strategy. For background drift detection, automated repair pipelines, and quarantine incident response, see [`docs/RECONCILIATION.md`](../docs/RECONCILIATION.md). For response envelopes, errors, and pagination, see [`docs/API_RESPONSES.md`](./docs/API_RESPONSES.md). For how the frontend should submit, poll, and **retry** these endpoints safely, see [`docs/transaction-status-api.md`](./docs/transaction-status-api.md). Indexer contributors should also follow the contract [`event schema`](../contracts/docs/EVENT_SCHEMA.md) and [`pause/recovery model`](../contracts/docs/PAUSE_RECOVERY.md). For how confirmations become quest completions and reward grants (idempotency, reorg correction, and the current payout state), see [`docs/QUEST_REWARDS.md`](../docs/QUEST_REWARDS.md). Security hardening work is documented in [`docs/SECURITY_BOUNDARIES.md`](./docs/SECURITY_BOUNDARIES.md) (exports/rendering/webhooks), [`docs/SYNTHETIC_MONITOR.md`](./docs/SYNTHETIC_MONITOR.md) (scheduled journey monitor), [`docs/SUPPORT_ACCESS.md`](./docs/SUPPORT_ACCESS.md) (time-bounded maintainer access + immutable audit trail), and [`docs/IMPORT_PIPELINE.md`](./docs/IMPORT_PIPELINE.md) (preview/quarantine/commit/rollback imports).
+For the manual repair command contract, see [`docs/RECONCILIATION.md`](../docs/RECONCILIATION.md). See `docs/superpowers/specs/2026-04-23-action-ledger-design.md` for the full contract, and [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the service layout, schema, worker runtime, and migration strategy. For background drift detection, automated repair pipelines, and quarantine incident response, see [`docs/RECONCILIATION.md`](../docs/RECONCILIATION.md). For response envelopes, errors, and pagination, see [`docs/API_RESPONSES.md`](docs/API_RESPONSES.md). For how the frontend should submit, poll, and **retry** these endpoints safely, see [`docs/transaction-status-api.md`](docs/transaction-status-api.md). Indexer contributors should also follow the contract [`event schema`](../contracts/docs/EVENT_SCHEMA.md) and [`pause/recovery model`](../contracts/docs/PAUSE_RECOVERY.md). For how confirmations become quest completions and reward grants (idempotency, reorg correction, and the current payout state), see [`docs/QUEST_REWARDS.md`](../docs/QUEST_REWARDS.md).
 
 ## Environment
 

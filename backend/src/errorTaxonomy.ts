@@ -503,6 +503,55 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorDescriptor> = {
     userMessage: "The requested webhook provider is not supported.",
     recovery: "Use a supported webhook provider (e.g. stripe, internal, stellar, custom).",
     exposeMessage: true
+  },
+  [ERROR_CODES.QUEUE_BACKPRESSURE]: {
+    category: "rate_limit",
+    retryable: true,
+    userMessage: "The background job queue is currently under heavy load.",
+    recovery: "Wait a moment (see the Retry-After header) before submitting further background jobs.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.INVARIANT_VIOLATION]: {
+    category: "conflict",
+    retryable: false,
+    userMessage: "A state transition invariant was violated.",
+    recovery: "Refresh the current state and verify account and pool status before retrying.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.BALANCE_INVARIANT_VIOLATION]: {
+    category: "conflict",
+    retryable: false,
+    userMessage: "A balance conservation or non-negative invariant was violated.",
+    recovery: "Ensure sufficient funds and that the operation preserves balance conservation.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.OWNERSHIP_INVARIANT_VIOLATION]: {
+    category: "authorization",
+    retryable: false,
+    userMessage: "An ownership transition invariant was violated.",
+    recovery: "Verify that only the current authorized owner can transfer ownership.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.ENTITLEMENT_INVARIANT_VIOLATION]: {
+    category: "conflict",
+    retryable: false,
+    userMessage: "An entitlement or claim invariant was violated.",
+    recovery: "Verify eligibility and ensure the reward or prize has not already been claimed.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.SERVICE_DEGRADED]: {
+    category: "dependency",
+    retryable: true,
+    userMessage: "The service is temporarily operating in degraded mode due to unavailable dependencies.",
+    recovery: "Read operations are serving cached data. Mutations will resume once upstream dependencies recover.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.DEPENDENCY_UNAVAILABLE]: {
+    category: "dependency",
+    retryable: true,
+    userMessage: "An upstream dependency is temporarily unavailable.",
+    recovery: "Try again in a few moments or wait for the system to recover.",
+    exposeMessage: true
   }
 };
 

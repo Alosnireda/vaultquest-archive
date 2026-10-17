@@ -5,6 +5,7 @@ import { requireServiceAuth } from "../middleware/service-auth.js";
 import { ok } from "../responses.js";
 import { JOB_STATUSES, type JobRecord } from "../worker/types.js";
 import type { JobQueue } from "../worker/jobWorker.js";
+import { planDeadLetterRetries, summarizeDeadLetters } from "../services/deadLetterOperator.js";
 
 const listQuery = z.object({
   status: z.enum(JOB_STATUSES).optional(),
@@ -12,6 +13,17 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50)
 });
 const idParams = z.object({ id: z.string().uuid() });
+
+const deadLetterQuery = z.object({
+  type: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50)
+});
+
+const deadLetterRetryBody = z.object({
+  dry_run: z.boolean().default(true),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  type: z.string().min(1).max(100).optional()
+});
 
 const staleQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -85,6 +97,14 @@ export const jobsRoutes = (
       return ok((await queue.listJobs(q)).map(serializeJob));
     });
 
+    app.get("/internal/jobs/pressure", { preHandler: [guard] }, async () => {
+      if (!queue.backpressureManager) {
+        return ok({ enabled: false });
+      }
+      const metrics = await queue.backpressureManager.getMetrics();
+      return ok({ enabled: true, metrics });
+    });
+
     // Stale-cache inspection and repair are opt-in: they only register when the
     // caller wires a detector/repairer, and use a literal segment so they can
     // never collide with `/internal/jobs/:id` (find-my-way rejects duplicate
@@ -111,6 +131,30 @@ export const jobsRoutes = (
         return ok(result);
       });
     }
+
+    // Dead-letter inspection and bounded retry (#980). Static segments are
+    // registered before `/internal/jobs/:id` so they can never be shadowed.
+    app.get("/internal/jobs/dead-letters", { preHandler: [guard] }, async (req) => {
+      const q = deadLetterQuery.parse(req.query);
+      const jobs = await queue.listJobs({ status: "dead", type: q.type, limit: q.limit });
+      return ok({ summary: summarizeDeadLetters(jobs), jobs: jobs.map(serializeJob) });
+    });
+
+    app.post("/internal/jobs/dead-letters/retry", { preHandler: [guard] }, async (req) => {
+      const body = deadLetterRetryBody.parse(req.body ?? {});
+      const jobs = await queue.listJobs({ status: "dead", type: body.type, limit: body.limit });
+      const plan = planDeadLetterRetries(jobs, { limit: body.limit, type: body.type });
+      const retried: string[] = [];
+      const failed: Array<{ id: string; message: string }> = [];
+      if (!body.dry_run) {
+        for (const id of plan.candidates) {
+          const job = await queue.retryDeadJob(id);
+          if (job) retried.push(id);
+          else failed.push({ id, message: "job is no longer dead" });
+        }
+      }
+      return ok({ dry_run: body.dry_run, candidates: plan.candidates, skipped: plan.skipped, retried, failed });
+    });
 
     app.get("/internal/jobs/:id", { preHandler: [guard] }, async (req) => {
       const { id } = idParams.parse(req.params);

@@ -63,6 +63,15 @@ import {
 } from "./services/impersonation.js";
 import { impersonationRoutes } from "./routes/impersonation.js";
 import { createImpersonationHook } from "./middleware/impersonation.js";
+import {
+  CapabilityTokenService,
+  type CapabilityTokenStore,
+} from "./services/capabilityTokenService.js";
+import { capabilityRoutes } from "./routes/capabilityTokens.js";
+import {
+  ResumableRepairEngine,
+  PrismaRepairDataSource,
+} from "./services/resumableRepairJob.js";
 import { PartialFailureService } from "./services/partialFailureService.js";
 import { partialFailureRoutes } from "./routes/partialFailures.js";
 
@@ -138,6 +147,10 @@ export type AppDeps = {
   sorobanRpcUrls?: string;
   degradedModeService?: DegradedModeService;
   jobQueue?: JobQueue;
+  capabilityTokenService?: CapabilityTokenService;
+  capabilityTokenSecret?: string;
+  capabilityTokenStore?: CapabilityTokenStore;
+  resumableRepairEngine?: ResumableRepairEngine;
 };
 
 declare module "fastify" {
@@ -148,6 +161,8 @@ declare module "fastify" {
     searchIndexService?: SearchIndexService;
     searchIndexRepairService?: SearchIndexRepairService;
     webhookService?: WebhookService;
+    capabilityTokenService?: CapabilityTokenService;
+    resumableRepairEngine?: ResumableRepairEngine;
   }
 }
 
@@ -424,7 +439,23 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     operationalHealthRoutes(operationalHealthSvc, deps.internalSecret),
   );
   app.register(privacyAnalyticsRoutes(deps.prisma, deps.internalSecret));
-  if (jobQueue) app.register(jobsRoutes(jobQueue, deps.internalSecret));
+  const resumableRepair =
+    deps.resumableRepairEngine ??
+    new ResumableRepairEngine({
+      dataSource: new PrismaRepairDataSource(deps.prisma),
+    });
+  app.decorate("resumableRepairEngine", resumableRepair);
+  if (jobQueue) {
+    app.register(
+      jobsRoutes(
+        jobQueue,
+        deps.internalSecret,
+        undefined,
+        undefined,
+        resumableRepair,
+      ),
+    );
+  }
   app.register(usersRoutes, {
     prefix: "/api/users",
     prisma: deps.prisma,
@@ -557,6 +588,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       write: requirePermission("admin.recovery.write", [walletPrincipal]),
     }),
   );
+
+  // #984: Expiring capability tokens for sensitive actions.
+  const capabilitySvc =
+    deps.capabilityTokenService ??
+    new CapabilityTokenService({
+      secretKey: deps.capabilityTokenSecret ?? deps.internalSecret,
+      store: deps.capabilityTokenStore,
+    });
+  app.decorate("capabilityTokenService", capabilitySvc);
+  app.register(capabilityRoutes, { capabilityService: capabilitySvc });
 
   // #799: signed webhook verification and replay-window enforcement.
   const webhookStore =

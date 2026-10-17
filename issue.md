@@ -192,3 +192,80 @@
 - `backend/src/services/supportEvidenceBundleService.ts`
 - `backend/tests/supportEvidenceBundle.spec.ts`
 
+---
+
+## #946 – Add API problem-details taxonomy with stable error codes and remediation hints
+
+**Problem:** API error responses lacked stable machine-readable error codes, unified RFC 7807/9457 problem details formatting, field-level validation details, and remediation guidance across vault deposits, prize rounds, quests, wallet flows, and indexer reconciliation.
+
+**Resolution:**
+- Implemented `formatProblemDetails` in `backend/src/problemDetails.ts` adhering to RFC 7807 and RFC 9457 schemas (`type`, `title`, `status`, `detail`, `instance`, `code`, `category`, `retryable`, `remediation`, `error_id`, `timestamp`, `invalid_params`).
+- Added domain-specific stable error codes in `backend/src/constants.ts` and catalog entries with safe messages and actionable remediation hints in `backend/src/errorTaxonomy.ts`.
+- Updated `backend/src/middleware/errorHandler.ts` to negotiate `application/problem+json` while preserving the backward-compatible `{ error: { code, message, details, issues } }` payload envelope.
+- Added comprehensive unit and contract drift prevention tests in `backend/tests/problemDetails.spec.ts`.
+
+**Files changed:**
+- `backend/src/constants.ts`
+- `backend/src/errorTaxonomy.ts`
+- `backend/src/problemDetails.ts`
+- `backend/src/middleware/errorHandler.ts`
+- `backend/tests/problemDetails.spec.ts`
+
+---
+
+## #985 – Add contract tests for pagination, filtering, and authorization boundaries
+
+**Problem:** List endpoints lacked executable contract tests verifying pagination monotonicity, exact limit boundaries, filter isolation (including soft-delete/redacted record hiding), and multi-tenant authorization boundaries.
+
+**Resolution:**
+- Built contract test suite `backend/tests/paginationFilteringAuthContract.spec.ts` covering normal pagination traversal, exact limit boundary conditions, empty list envelopes, and limit clamping (`[1, 100]`).
+- Validated filtering boundaries for `ActionStatus`, `ActionType`, combined filters, and strict exclusion of soft-deleted / redacted records (`redactedAt IS NOT NULL`).
+- Verified multi-tenant wallet isolation (Alice cannot access Bob's ledger records), missing wallet parameter rejection, RBAC 401 unauthenticated boundary, and internal secret verification.
+- Documented operational edge cases, failure modes, and recovery steps in `docs/PAGINATION_AND_FILTERING.md`.
+
+**Files changed:**
+- `backend/tests/paginationFilteringAuthContract.spec.ts`
+- `docs/PAGINATION_AND_FILTERING.md`
+
+---
+
+## #984 – Implement expiring capability tokens for sensitive actions
+
+**Problem:** Sensitive operations (such as emergency vault draining, round settlement, key rotation, and ledger repairs) operated under ambient privileges rather than requiring explicit, time-bounded, single-use cryptographic authorization tokens.
+
+**Resolution:**
+- Implemented `CapabilityTokenService` in `backend/src/services/capabilityTokenService.ts` utilizing HMAC-SHA256 signatures, constant-time verification (`timingSafeEqual`), bounded TTL (10s to 3600s), and scope checking (action, resource, principal).
+- Built `InMemoryCapabilityTokenStore` providing atomic single-use replay protection, token revocation, principal revocation, and periodic TTL memory pruning.
+- Created Fastify middleware `requireCapability` in `backend/src/middleware/capabilityToken.ts` enforcing capability headers with RFC 7807 Problem Details on unauthorized, expired, or replayed tokens.
+- Added capability token routes in `backend/src/routes/capabilityTokens.ts` (`POST /auth/capabilities/issue`, `POST /auth/capabilities/inspect`, `POST /auth/capabilities/revoke`) and integrated into `backend/src/app.ts`.
+- Created comprehensive test suite in `backend/tests/capabilityToken.spec.ts`.
+
+**Files changed:**
+- `backend/src/services/capabilityTokenService.ts`
+- `backend/src/middleware/capabilityToken.ts`
+- `backend/src/routes/capabilityTokens.ts`
+- `backend/src/app.ts`
+- `backend/tests/capabilityToken.spec.ts`
+
+---
+
+## #977 – Build a resumable repair job for orphaned and inconsistent records
+
+**Problem:** Reconciling orphaned actions, stale pending events, and inconsistent vault settlements across large tables could fail mid-execution or exceed memory limits without cursor checkpointing, bounded batching, and resumption capabilities.
+
+**Resolution:**
+- Implemented `ResumableRepairEngine` in `backend/src/services/resumableRepairJob.ts` with multi-phase execution (`orphaned_actions`, `stale_pending_events`, `unresolved_settlements`), cursor-based checkpointing, dry-run mode, and error isolation.
+- Designed strictly bounded $O(B)$ memory footprint and $O(N \log N)$ execution time using indexed primary key cursor pagination.
+- Added abstract data source interface with both `PrismaRepairDataSource` for PostgreSQL and `InMemoryRepairDataSource` for zero-dependency test execution.
+- Integrated background worker job handler in `backend/src/worker/handlers.ts` (`JOB_TYPES.RESUMABLE_REPAIR = "repair.resumable"`).
+- Added authenticated REST API endpoints in `backend/src/routes/jobs.ts` (`POST /internal/repair/resumable`, `GET /internal/repair/resumable/:id/checkpoint`, `POST /internal/repair/resumable/:id/resume`, `POST /internal/repair/resumable/:id/pause`).
+- Added comprehensive unit and integration test suite in `backend/tests/resumableRepairJob.spec.ts`.
+
+**Files changed:**
+- `backend/src/services/resumableRepairJob.ts`
+- `backend/src/worker/handlers.ts`
+- `backend/src/routes/jobs.ts`
+- `backend/src/app.ts`
+- `backend/tests/resumableRepairJob.spec.ts`
+
+

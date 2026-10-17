@@ -82,12 +82,25 @@ export function serializeJob(j: JobRecord) {
   };
 }
 
+import type { ResumableRepairEngine, RepairPhase } from "../services/resumableRepairJob.js";
+
+const resumableRepairStartBody = z.object({
+  dry_run: z.boolean().default(true),
+  batch_size: z.coerce.number().int().min(1).max(200).default(50),
+  phases: z.array(z.enum(["orphaned_actions", "stale_pending_events", "unresolved_settlements"])).optional()
+});
+
+const resumableRepairResumeBody = z.object({
+  batch_size: z.coerce.number().int().min(1).max(200).optional()
+});
+
 /** Operator inspection of background jobs. Guarded by the internal service secret. */
 export const jobsRoutes = (
   queue: JobQueue,
   secret: string,
   detector?: StaleCacheDetector,
-  repairer?: CacheRepairJob
+  repairer?: CacheRepairJob,
+  resumableRepair?: ResumableRepairEngine
 ): FastifyPluginAsync =>
   async (app) => {
     const guard = requireServiceAuth(secret);
@@ -104,6 +117,47 @@ export const jobsRoutes = (
       const metrics = await queue.backpressureManager.getMetrics();
       return ok({ enabled: true, metrics });
     });
+
+    // Resumable repair job endpoints (#977)
+    const activeResumable = resumableRepair;
+    if (activeResumable) {
+      app.post("/internal/repair/resumable", { preHandler: [guard] }, async (req) => {
+        const body = resumableRepairStartBody.parse(req.body ?? {});
+        const checkpoint = await activeResumable.startJob({
+          dryRun: body.dry_run,
+          batchSize: body.batch_size,
+          phases: body.phases as RepairPhase[] | undefined
+        });
+        return ok(checkpoint);
+      });
+
+      app.get("/internal/repair/resumable/:id/checkpoint", { preHandler: [guard] }, async (req) => {
+        const { id } = idParams.parse(req.params);
+        const checkpoint = await activeResumable.getCheckpoint(id);
+        if (!checkpoint) {
+          throw AppError.notFound(`Repair checkpoint '${id}' not found`);
+        }
+        return ok(checkpoint);
+      });
+
+      app.post("/internal/repair/resumable/:id/resume", { preHandler: [guard] }, async (req) => {
+        const { id } = idParams.parse(req.params);
+        const body = resumableRepairResumeBody.parse(req.body ?? {});
+        const checkpoint = await activeResumable.resumeJob(id, {
+          batchSize: body.batch_size
+        });
+        return ok(checkpoint);
+      });
+
+      app.post("/internal/repair/resumable/:id/pause", { preHandler: [guard] }, async (req) => {
+        const { id } = idParams.parse(req.params);
+        const checkpoint = await activeResumable.pauseJob(id);
+        if (!checkpoint) {
+          throw AppError.notFound(`Repair checkpoint '${id}' not found`);
+        }
+        return ok(checkpoint);
+      });
+    }
 
     // Stale-cache inspection and repair are opt-in: they only register when the
     // caller wires a detector/repairer, and use a literal segment so they can

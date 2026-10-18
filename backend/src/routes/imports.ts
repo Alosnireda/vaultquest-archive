@@ -8,6 +8,7 @@ import {
   IMPORT_MAX_ROWS,
   type DataImportService,
 } from "../services/dataImport.js";
+import { validateFileType } from "../services/strictAllowlistService.js";
 
 export interface DuplicateReport {
   key: string;
@@ -17,9 +18,14 @@ export interface DuplicateReport {
 
 const importBody = z.object({
   format_version: z.literal(IMPORT_FORMAT_VERSION),
+  filename: z.string().optional(),
   /** Defaults to a dry run: committing requires an explicit `dry_run: false`. */
   dry_run: z.boolean().default(true),
   records: z.array(z.unknown()).max(IMPORT_MAX_ROWS),
+});
+
+const cancelImportBody = z.object({
+  import_batch_id: z.string().min(1),
 });
 
 /**
@@ -31,6 +37,12 @@ export const importsRoutes =
   async (app) => {
     app.post("/imports/saved-pools", { preHandler: [guard] }, async (req) => {
       const body = importBody.parse(req.body);
+      if (body.filename) {
+        const fileCheck = validateFileType(body.filename);
+        if (!fileCheck.allowed) {
+          throw AppError.badRequest(fileCheck.code, `Import file rejected: ${fileCheck.reason}`);
+        }
+      }
       const wallet = req.principal?.walletAddress;
       if (!wallet)
         throw AppError.forbidden("a wallet session is required to import data");
@@ -55,6 +67,20 @@ export const importsRoutes =
         });
       }
       return ok(result);
+    });
+
+    // Safe cancellation endpoint for long-running imports (#987)
+    app.post("/imports/saved-pools/cancel", { preHandler: [guard] }, async (req) => {
+      const body = cancelImportBody.parse(req.body);
+      const wallet = req.principal?.walletAddress;
+      if (!wallet)
+        throw AppError.forbidden("a wallet session is required to cancel an import");
+      const cancelled = svc.cancelActiveRun(body.import_batch_id);
+      return ok({
+        import_batch_id: body.import_batch_id,
+        cancelled,
+        status: cancelled ? "cancelled" : "not_found_or_completed"
+      });
     });
   };
 

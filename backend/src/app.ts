@@ -80,6 +80,9 @@ import {
 } from "./services/resumableRepairJob.js";
 import { PartialFailureService } from "./services/partialFailureService.js";
 import { partialFailureRoutes } from "./routes/partialFailures.js";
+import { policyDryRunRoutes } from "./routes/policyDryRun.js";
+import { SecurityRevocationService } from "./services/securityRevocationService.js";
+import { securityRevocationRoutes } from "./routes/securityRevocation.js";
 
 import { configureTelemetry } from "./services/telemetry.js";
 import { type JobStore } from "./worker/jobStore.js";

@@ -480,6 +480,59 @@ export class ImportService {
     return { batch: view, alreadyRolledBack: false };
   }
 
+  async cancel(
+    batchId: string,
+    caller?: { walletAddress?: string; role?: string }
+  ): Promise<{ batch: ImportBatchView; alreadyCancelled: boolean }> {
+    const batch = await this.prisma.importBatch.findUnique({
+      where: { id: batchId },
+      include: { rows: { orderBy: { rowNumber: "asc" } } }
+    });
+    if (!batch) throw AppError.notFound(`import batch ${batchId} not found`);
+
+    if (caller && caller.role !== "maintainer" && caller.walletAddress && caller.walletAddress !== batch.createdBy) {
+      throw AppError.forbidden("not authorized to cancel this import batch");
+    }
+
+    if (batch.status === "cancelled") {
+      const view = await this.view(batchId);
+      if (!view) throw AppError.notFound(`import batch ${batchId} not found`);
+      return { batch: view, alreadyCancelled: true };
+    }
+
+    if (batch.status === "committed" || batch.status === "rolled_back" || batch.status === "partially_rolled_back") {
+      throw AppError.conflict(
+        ERROR_CODES.ILLEGAL_TRANSITION,
+        `cannot cancel import batch in terminal or committed status ${batch.status}`
+      );
+    }
+
+    // Cancel unapplied rows
+    await this.prisma.importRow.updateMany({
+      where: {
+        batchId,
+        status: { in: ["preview", "accepted"] }
+      },
+      data: {
+        status: "quarantined",
+        quarantineReason: "commit_failed",
+        quarantineDetail: "import cancelled by client request before commit"
+      }
+    });
+
+    await this.prisma.importBatch.update({
+      where: { id: batchId },
+      data: {
+        status: "cancelled",
+        rolledBackAt: new Date()
+      }
+    });
+
+    const view = await this.view(batchId);
+    if (!view) throw AppError.notFound(`import batch ${batchId} not found`);
+    return { batch: view, alreadyCancelled: false };
+  }
+
   async getBatch(batchId: string): Promise<ImportBatchView | null> {
     return this.view(batchId);
   }
@@ -541,6 +594,8 @@ export function nextActionsForStatus(status: string): string[] {
       ];
     case "rolled_back":
       return ["No further action; re-upload a corrected file to start a new batch."];
+    case "cancelled":
+      return ["Import batch was cancelled. No actions were applied. Start a new batch if needed."];
     default:
       return [];
   }

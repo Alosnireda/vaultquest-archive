@@ -763,6 +763,55 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorDescriptor> = {
     userMessage: "The capability token has been explicitly revoked.",
     recovery: "Request a new capability token from an authorized maintainer or administrator.",
     exposeMessage: true
+  },
+  [ERROR_CODES.URL_NOT_ALLOWED]: {
+    category: "validation",
+    retryable: false,
+    userMessage: "The provided URL is not in the allowed destinations list or is unsafe.",
+    recovery: "Provide an approved HTTPS URL from an allowlisted domain.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.FILE_TYPE_NOT_ALLOWED]: {
+    category: "validation",
+    retryable: false,
+    userMessage: "The file type or extension is not allowed.",
+    recovery: "Upload an allowlisted file type (e.g. .csv or .json) without dangerous extensions.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.DESTINATION_NOT_ALLOWED]: {
+    category: "validation",
+    retryable: false,
+    userMessage: "The destination address or target is not allowed.",
+    recovery: "Specify a valid destination address or allowlisted webhook target.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.OPERATION_CANCELLED]: {
+    category: "conflict",
+    retryable: false,
+    userMessage: "The operation was cancelled by client request.",
+    recovery: "Start a new operation if you wish to re-run the process.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.CANCELLATION_NOT_ALLOWED]: {
+    category: "conflict",
+    retryable: false,
+    userMessage: "The operation cannot be cancelled in its current state.",
+    recovery: "Wait for the operation to complete or inspect its final state.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.INVALID_SORT_KEY]: {
+    category: "validation",
+    retryable: false,
+    userMessage: "The requested sort key or ordering specification is invalid.",
+    recovery: "Use a supported sort key and direction.",
+    exposeMessage: true
+  },
+  [ERROR_CODES.CURSOR_ORDER_MISMATCH]: {
+    category: "validation",
+    retryable: false,
+    userMessage: "The pagination cursor does not match the requested sort order or key.",
+    recovery: "Start pagination from the first page when changing sort order or filters.",
+    exposeMessage: true
   }
 };
 

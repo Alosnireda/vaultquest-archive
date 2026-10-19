@@ -80,6 +80,7 @@ import {
 } from "./services/resumableRepairJob.js";
 import { PartialFailureService } from "./services/partialFailureService.js";
 import { partialFailureRoutes } from "./routes/partialFailures.js";
+import { cacheRepairRoutes } from "./routes/cacheRepair.js";
 import { policyDryRunRoutes } from "./routes/policyDryRun.js";
 import { SecurityRevocationService } from "./services/securityRevocationService.js";
 import { securityRevocationRoutes } from "./routes/securityRevocation.js";
@@ -154,6 +155,8 @@ export type AppDeps = {
   jobWorkerPollIntervalMs?: number;
   /** Comma-separated Soroban RPC endpoints used by dependency diagnostics. */
   sorobanRpcUrls?: string;
+  searchIndexService?: SearchIndexService;
+  searchIndexRepairService?: SearchIndexRepairService;
   degradedModeService?: DegradedModeService;
   jobQueue?: JobQueue;
   capabilityTokenService?: CapabilityTokenService;
@@ -464,6 +467,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     ),
   );
   app.register(reconciliationRoutes(deps.prisma, deps.internalSecret));
+  if (deps.cacheService) {
+    app.register(cacheRepairRoutes(deps.cacheService, deps.internalSecret));
+  }
   app.register(
     operationalHealthRoutes(operationalHealthSvc, deps.internalSecret),
   );

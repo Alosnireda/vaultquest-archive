@@ -22,6 +22,11 @@ import { usersRoutes } from "./routes/users.js";
 import { prometheusRoutes } from "./routes/prometheus.js";
 import { healthRoutes } from "./routes/health.js";
 import type { DegradedModeService } from "./services/degradedModeService.js";
+import { DegradedModeService } from "./services/degradedModeService.js";
+import {
+  DependencyMatrixValidator,
+  validateDependencyMatrixOnStartup,
+} from "./services/dependencyMatrixValidator.js";
 import { MetricsService } from "./services/metricsService.js";
 import { DrawProofService } from "./services/drawProofService.js";
 import { FEATURE_FLAGS, FeatureFlagService } from "./services/featureFlagService.js";
@@ -194,6 +199,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       "sensitive access anomaly",
     );
   });
+
+  // Initialize DegradedModeService if not provided
+  if (!deps.degradedModeService) {
+    deps.degradedModeService = new DegradedModeService();
+  }
+
   const app = Fastify({
     // Fastify 5 passes logger instances via `loggerInstance`; `logger` only
     // accepts a configuration object (FSTDEP / fastify@5 breaking change).
@@ -314,9 +325,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const schemaVersionSvc = new SchemaVersionService(deps.prisma);
   const auditSvc = new AuditService(deps.prisma);
 
-  const jobQueue = deps.jobQueue || (deps.jobStore
-    ? new JobQueue({ store: deps.jobStore })
-    : undefined);
+  const jobQueue =
+    deps.jobQueue ||
+    (deps.jobStore ? new JobQueue({ store: deps.jobStore }) : undefined);
   if (jobQueue) {
     const worker = new JobWorker({
       queue: jobQueue,
@@ -371,7 +382,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // #815: counters live in Redis when available so every replica enforces
   // the same limits; otherwise per process.
   const redisForLimits = deps.cacheService?.redisClient as unknown as
-    RedisLikeClient | null | undefined;
+    | RedisLikeClient
+    | null
+    | undefined;
   const operationLimits = new OperationLimitService({
     policies: resolveOperationPolicies(deps.operationLimits),
     counters: redisForLimits
@@ -451,11 +464,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }),
   );
   app.register(walletAuthRoutes(walletAuthSvc));
-  app.register(healthRoutes(svc, {
-    prisma: deps.prisma,
-    cacheService: deps.cacheService,
-    rpcUrls: deps.sorobanRpcUrls,
-  }, deps.degradedModeService));
+  app.register(
+    healthRoutes(
+      svc,
+      {
+        prisma: deps.prisma,
+        cacheService: deps.cacheService,
+        rpcUrls: deps.sorobanRpcUrls,
+      },
+      deps.degradedModeService,
+    ),
+  );
   app.register(savedPoolsRoutes(savedPoolsSvc));
   app.register(schemaVersionRoutes(schemaVersionSvc));
   app.register(

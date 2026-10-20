@@ -619,6 +619,7 @@ An unexpected server failure (the cause is logged under `error_id`, never return
 | `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` | conflict | no | 409 | Same `Idempotency-Key`, different body |
 | `TX_HASH_ALREADY_ATTACHED` | conflict | no | 409 | `tx_hash` already belongs to an action |
 | `CONFLICT` | conflict | no | 409 | Unique-constraint conflict |
+| `PROJECTION_REBUILD_BUSY` | conflict | yes | 409 | The indexer lease is held (an indexer tick or another rebuild); retry the projection rebuild shortly (#989) |
 | `RATE_LIMIT_EXCEEDED` | rate_limit | yes | 429 | Too many requests; honour `Retry-After` |
 | `OPERATION_LIMIT_EXCEEDED` | rate_limit | yes | 429 | Policy limit on an expensive operation (#815); `details` has `operation`, `limit`, `retry_after_seconds`, `reset_at`, `remediation` — see [backend/docs/RECEIPTS_RECOVERY_AUDIT_LIMITS.md](../backend/docs/RECEIPTS_RECOVERY_AUDIT_LIMITS.md) |
 | `WALLET_REJECTED` | wallet | yes | — | Wallet declined the request (recorded on the action as `error_code`) |

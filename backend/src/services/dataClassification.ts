@@ -81,6 +81,11 @@ export const DATA_CLASSIFICATION: Record<Prisma.ModelName, TableClassification> 
   PartialFailure: { table: "partial_failures", kind: "off-chain", rationale: "Partial failure investigation records." },
   ActionLease: { table: "action_leases", kind: "ephemeral", rationale: "Worker leases; stale after restore." },
   JobLease: { table: "job_leases", kind: "ephemeral", rationale: "Cron leases; stale after restore." },
+  ProjectionRebuild: {
+    table: "projection_rebuilds",
+    kind: "ephemeral",
+    rationale: "Projection rebuild runs (#989); a restored database must not inherit a stale indexer fence."
+  },
   BackgroundJob: { table: "background_jobs", kind: "ephemeral", rationale: "Background worker queue." },
   IdempotencyKey: { table: "idempotency_keys", kind: "ephemeral", rationale: "Idempotency keys and cached results; safe to expire." },
   ImpersonationSession: { table: "impersonation_sessions", kind: "ephemeral", rationale: "Short-lived maintainer impersonation sessions." },

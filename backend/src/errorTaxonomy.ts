@@ -812,6 +812,13 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorDescriptor> = {
     userMessage: "The pagination cursor does not match the requested sort order or key.",
     recovery: "Start pagination from the first page when changing sort order or filters.",
     exposeMessage: true
+  },
+  [ERROR_CODES.PROJECTION_REBUILD_BUSY]: {
+    category: "conflict",
+    retryable: true,
+    userMessage: "The indexer is busy, so the projection rebuild could not start yet.",
+    recovery: "Retry in a few seconds; the indexer lease frees up when the current tick or rebuild finishes.",
+    exposeMessage: true
   }
 };
 

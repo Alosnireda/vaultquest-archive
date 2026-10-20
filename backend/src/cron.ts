@@ -16,6 +16,7 @@ import type { LedgerService } from "./services/ledger.js";
 import { LeaseService } from "./services/leaseService.js";
 import { getPrometheusMetrics } from "./services/prometheusMetrics.js";
 import { runReplayEquivalence } from "./services/replayEquivalence.js";
+import { INDEXER_JOB_LEASE } from "./services/projectionRebuild.js";
 import {
   OnChainDriftDetector,
   type OnChainReader,
@@ -247,6 +248,8 @@ export function startIndexerCron(opts: {
   logger: Logger;
   schedule?: string;
   indexerVersion?: string;
+  /** #989: true while a projection rebuild is incomplete; ingestion must not write on a half-built projection. */
+  isFenced?: () => Promise<boolean>;
 }): ScheduledTask {
   const schedule = opts.schedule ?? "*/1 * * * *";
   const leases = new LeaseService(opts.prisma);
@@ -256,10 +259,14 @@ export function startIndexerCron(opts: {
     try {
       await withJobLease(
         leases,
-        "stellar-indexer",
+        INDEXER_JOB_LEASE,
         leaseTtlMs,
         opts.logger,
         async () => {
+          if (await opts.isFenced?.()) {
+            opts.logger.warn({}, "indexer tick skipped: a projection rebuild is incomplete");
+            return;
+          }
           if (!(await pingDatabase(opts.prisma))) {
             opts.logger.warn({}, "indexer tick skipped: database unreachable");
             return;
@@ -458,6 +465,8 @@ export function startReplayEquivalenceCron(opts: {
   factoryAddress?: string;
   logger: Logger;
   schedule?: string;
+  /** #989: a partially rebuilt projection would page as a false divergence. */
+  isFenced?: () => Promise<boolean>;
 }): ScheduledTask {
   const schedule = opts.schedule ?? "30 3 * * *"; // default: daily at 03:30
   const leases = new LeaseService(opts.prisma);
@@ -472,6 +481,10 @@ export function startReplayEquivalenceCron(opts: {
         leaseTtlMs,
         opts.logger,
         async () => {
+          if (await opts.isFenced?.()) {
+            opts.logger.warn({}, "replay-equivalence skipped: a projection rebuild is incomplete");
+            return;
+          }
           const report = await runReplayEquivalence(
             opts.prisma,
             opts.replayPrisma,

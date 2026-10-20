@@ -220,6 +220,34 @@ model PoisonEvent {
   @@map("poison_events")
 }
 
+// #989 — versioned projection rebuild runs. Replays chain_events through the
+// production indexer at one projection version (SCHEMA_VERSIONS.INDEXER). A
+// run in `running` or `failed` leaves projections partially rebuilt, so it
+// fences the live indexer until it is resumed or superseded
+// (services/projectionRebuild.ts).
+model ProjectionRebuild {
+  id                String    @id @default(uuid()) @db.Uuid
+  projectionVersion String    @map("projection_version")
+  status            String
+  requestedBy       String    @map("requested_by")
+  reason            String
+  /// Last chain_events id at start; the replay never goes past it.
+  toEventId         String?   @map("to_event_id")
+  /// Last event id whose batch committed; resume continues after it.
+  cursor            String?
+  eventsReplayed    Int       @default(0) @map("events_replayed")
+  attempts          Int       @default(1)
+  errorCode         String?   @map("error_code")
+  lastError         String?   @map("last_error")
+  heartbeatAt       DateTime? @map("heartbeat_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  completedAt       DateTime? @map("completed_at")
+
+  @@index([status, createdAt])
+  @@map("projection_rebuilds")
+}
+
 model VaultSettlement {
   id             String    @id @default(uuid()) @db.Uuid
   vaultId        String    @unique @map("vault_id")

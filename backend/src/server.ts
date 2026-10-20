@@ -28,6 +28,7 @@ import { PrismaClient } from "@prisma/client";
 import { isSameDatabase } from "./services/backupService.js";
 import { SearchIndexService } from "./services/search/searchIndexService.js";
 import { SearchIndexRepairService } from "./services/search/searchIndexRepairService.js";
+import { PrismaProjectionRebuildStore, isIndexerFenced } from "./services/projectionRebuild.js";
 
 let loadManifest:
   typeof import("../../../lib/deployment-manifest.js").loadManifest | undefined;
@@ -148,6 +149,7 @@ const app = buildApp({
   stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
   stellarWebhookPublicKey: env.STELLAR_WEBHOOK_PUBLIC_KEY,
   webhookToleranceSeconds: env.WEBHOOK_TOLERANCE_SECONDS,
+  vaultFactoryAddress: env.VAULT_FACTORY_ADDRESS,
 });
 
 const searchRepairCronTask = env.SANDBOX_MODE
@@ -160,6 +162,10 @@ const searchRepairCronTask = env.SANDBOX_MODE
 const cacheRepairCronTask = env.SANDBOX_MODE
   ? undefined
   : startCacheRepairCron({ cacheService, logger });
+
+// #989: an incomplete projection rebuild fences ingestion and replay checks.
+const projectionRebuilds = new PrismaProjectionRebuildStore(prisma);
+const projectionFenced = () => isIndexerFenced(projectionRebuilds);
 
 // Periodic write-behind sync task: sync checkpoint from cache to PostgreSQL database every 15 seconds
 const cacheSyncInterval = env.SANDBOX_MODE
@@ -240,6 +246,7 @@ if (!env.SANDBOX_MODE && env.SOROBAN_RPC_URL && env.INDEXER_CONTRACT_IDS) {
     ledger: indexerLedgerService,
     logger,
     indexerVersion: SCHEMA_VERSIONS.INDEXER,
+    isFenced: projectionFenced,
   });
   logger.info(
     {
@@ -285,6 +292,7 @@ if (!env.SANDBOX_MODE && env.REPLAY_DATABASE_URL) {
     factoryAddress: env.VAULT_FACTORY_ADDRESS,
     logger,
     schedule: env.REPLAY_SCHEDULE,
+    isFenced: projectionFenced,
   });
   logger.info(
     { schedule: env.REPLAY_SCHEDULE },

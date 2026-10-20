@@ -41,6 +41,7 @@ Keep this table in sync in the same PR as any schema change.
 | `partial_failures` | off-chain | Backup | Partial failure investigation records. |
 | `action_leases` | ephemeral | Dropped | Worker leases, stale after restore. |
 | `job_leases` | ephemeral | Dropped | Cron leases; stale ones would block jobs until expiry. |
+| `projection_rebuilds` | ephemeral | Dropped | Projection rebuild runs (#989); a restored `running`/`failed` run would fence the indexer of the recovered database. |
 | `background_jobs` | ephemeral | Dropped | Background worker queue. |
 | `idempotency_keys` | ephemeral | Dropped | Idempotency keys; safe to expire. |
 | `impersonation_sessions` | ephemeral | Dropped | Maintainer impersonation sessions. |

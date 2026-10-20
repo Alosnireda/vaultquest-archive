@@ -138,6 +138,15 @@ import {
   type WebhookEventStore,
 } from "./services/webhookService.js";
 import { webhooksRoutes, type WebhookHandlerHooks } from "./routes/webhooks.js";
+import { LeaseService } from "./services/leaseService.js";
+import { sorobanNativeXdrDecoder } from "./services/stellarIndexer.js";
+import {
+  LeaseIndexerFence,
+  PrismaProjectionRebuildStore,
+  PrismaProjectionTarget,
+  ProjectionRebuildService,
+} from "./services/projectionRebuild.js";
+import { projectionRebuildRoutes } from "./routes/projectionRebuilds.js";
 
 export type AppDeps = {
   prisma: PrismaClient;
@@ -168,6 +177,8 @@ export type AppDeps = {
   capabilityTokenSecret?: string;
   capabilityTokenStore?: CapabilityTokenStore;
   resumableRepairEngine?: ResumableRepairEngine;
+  /** #989: the live indexer's VAULT_FACTORY_ADDRESS, so a projection rebuild replays registry events identically. */
+  vaultFactoryAddress?: string;
 };
 
 declare module "fastify" {
@@ -644,6 +655,27 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const partialFailureSvc = new PartialFailureService(deps.prisma, auditTrail);
   app.register(
     partialFailureRoutes(partialFailureSvc, {
+      read: requirePermission("admin.recovery.read", [walletPrincipal]),
+      write: requirePermission("admin.recovery.write", [walletPrincipal]),
+    }),
+  );
+
+  // #989: versioned projection rebuild from the stored chain event log. Its
+  // LedgerService shares the live cache (checkpoint) but registers no
+  // onActionConfirmed callback: replay rebuilds projections, not side effects.
+  const projectionRebuildSvc = new ProjectionRebuildService({
+    runs: new PrismaProjectionRebuildStore(deps.prisma),
+    target: new PrismaProjectionTarget(deps.prisma, new LedgerService(deps.prisma, deps.cacheService), {
+      decoder: sorobanNativeXdrDecoder,
+      factoryAddress: deps.vaultFactoryAddress,
+      logger: loggerInstance,
+    }),
+    fence: new LeaseIndexerFence(new LeaseService(deps.prisma)),
+    audit: auditTrail,
+    logger: loggerInstance,
+  });
+  app.register(
+    projectionRebuildRoutes(projectionRebuildSvc, {
       read: requirePermission("admin.recovery.read", [walletPrincipal]),
       write: requirePermission("admin.recovery.write", [walletPrincipal]),
     }),

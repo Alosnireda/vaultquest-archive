@@ -150,7 +150,9 @@ export const ERROR_CODES = {
   CANCELLATION_NOT_ALLOWED: "CANCELLATION_NOT_ALLOWED",
   // Deterministic sorting (#997)
   INVALID_SORT_KEY: "INVALID_SORT_KEY",
-  CURSOR_ORDER_MISMATCH: "CURSOR_ORDER_MISMATCH"
+  CURSOR_ORDER_MISMATCH: "CURSOR_ORDER_MISMATCH",
+  // Versioned projection rebuild (#989): the indexer lease is held right now.
+  PROJECTION_REBUILD_BUSY: "PROJECTION_REBUILD_BUSY"
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

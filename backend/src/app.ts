@@ -475,7 +475,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       deps.degradedModeService,
     ),
   );
-  app.register(savedPoolsRoutes(savedPoolsSvc));
+  app.register(
+    savedPoolsRoutes(
+      savedPoolsSvc,
+      requirePermission("own.data.write", [walletPrincipal]),
+    ),
+  );
   app.register(schemaVersionRoutes(schemaVersionSvc));
   app.register(
     internalRoutes(

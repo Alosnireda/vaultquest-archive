@@ -13,6 +13,8 @@ export const PERMISSIONS = [
   "own.data.read",
   "own.data.export",
   "own.data.import",
+  // #983: a wallet edits its own records (multi-client saved-pool edits).
+  "own.data.write",
   // #812: a wallet reads its own signed receipts; maintainers read any.
   "own.receipts.read",
   "admin.receipts.read",
@@ -50,6 +52,7 @@ const USER_PERMISSIONS: readonly Permission[] = [
   "own.data.read",
   "own.data.export",
   "own.data.import",
+  "own.data.write",
   "own.receipts.read",
 ];
 

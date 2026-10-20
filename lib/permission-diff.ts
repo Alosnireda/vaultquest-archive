@@ -84,6 +84,8 @@ export function getAffectedActions(permission: string): string[] {
       return ["Export personal records payload"];
     case "own.data.import":
       return ["Import saved pool watchlists"];
+    case "own.data.write":
+      return ["Edit own saved pool watchlist entries"];
     case "own.receipts.read":
       return ["View personal transaction receipts"];
     case "admin.audit.read":

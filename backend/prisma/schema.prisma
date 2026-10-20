@@ -499,6 +499,11 @@ model SavedPool {
   opensAt          DateTime? @map("opens_at")
   locksAt          DateTime? @map("locks_at")
   drawsAt          DateTime? @map("draws_at")
+  /// #983: increments on every write that changes a field; edits name the
+  /// version they were composed against (lib/conflict-resolver.ts).
+  version          Int      @default(0)
+  /// #983: per-field { version, stamp } of the edit that last wrote it.
+  fieldClocks      Json?    @map("field_clocks")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
